@@ -8,8 +8,8 @@ This application was developed using the following libraries with their notable 
 
 * [libfreenect](https://openkinect.org/wiki/Main_Page)
 * [XKin](https://github.com/fpeder/XKin)
-** [OpenCV](http://opencv.org/)
-** [FFTW](http://fftw.org/)
+  * [OpenCV](http://opencv.org/)
+  * [FFTW](http://fftw.org/)
 * [PortAudio](http://www.portaudio.com/)
 * [OpenGL](https://www.opengl.org/)
 
