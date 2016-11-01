@@ -27,7 +27,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
+// #include "./XKin/config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,11 +38,12 @@
 #include <opencv2/highgui/highgui_c.h>
 #include <libfreenect/libfreenect_sync.h>
 #include <libfreenect/libfreenect_cv.h>
+#include <portaudio.h>
 
-#include "../include/libbody.h"
-#include "../include/libhand.h"
-#include "../include/libposture.h"
-#include "../include/libgesture.h"
+#include "./XKin/include/libbody.h"
+#include "./XKin/include/libhand.h"
+#include "./XKin/include/libposture.h"
+#include "./XKin/include/libgesture.h"
 
 #define SCREENX 1200
 #define SCREENY 800
@@ -65,18 +66,18 @@ enum {
 
 int update = 1;
 char *infile = NULL;
-char *dir = NULL;
+// char *dir = NULL;
 
-typedef struct GState {
+/* typedef struct GState {
 	int zoom;
 	int rot;
-} GState; 
+} GState; */
 
-char*          fix_file_path           (char*);
+// char*          fix_file_path           (char*);
 IplImage*      draw_depth_hand         (CvSeq*, int);
-void           gallery_init            (IplImage**, GState*);
-void           gallery_free            (IplImage**);
-IplImage*      draw_current_image      (IplImage*, GState);
+// void           gallery_init            (IplImage**, GState*);
+// void           gallery_free            (IplImage**);
+// IplImage*      draw_current_image      (IplImage*, GState);
 int            buffered_classfy        (int);
 void           draw_trajectory         (IplImage*,CvSeq*);
 void           parse_args              (int,char**);
@@ -85,39 +86,39 @@ void           usage                   (void);
 
 int main (int argc, char *argv[])
 {
-	IplImage *gallery[NUM], *color;
+	// IplImage *gallery[NUM], *color;
 	CvHMM *models;
-	GState state[NUM];
-	int num, idx=0, zoom=0;
+	// GState state[NUM];
+	int num; // idx=0, zoom=0;
 	ptseq seq;
-	const char *win_gallery = "gallery";
-	const char *win_color = "color image";
+	// const char *win_gallery = "gallery";
+	// const char *win_color = "color image";
 	const char *win_hand = "depth hand";
 
 	parse_args(argc,argv);
 
 	seq = ptseq_init();
 	models = cvhmm_read(infile, &num);
-	color = cvCreateImage(cvSize(W, H), 8, 3);
-	gallery_init(gallery, state);
+	// color = cvCreateImage(cvSize(W, H), 8, 3);
+	// gallery_init(gallery, state);
 
-	cvNamedWindow(win_gallery, WIN_TYPE);
-	cvNamedWindow(win_color, WIN_TYPE);
+	// cvNamedWindow(win_gallery, WIN_TYPE);
+	// cvNamedWindow(win_color, WIN_TYPE);
 	cvNamedWindow(win_hand, WIN_TYPE);
-	cvMoveWindow(win_gallery, 0, 0);
-	cvMoveWindow(win_color, SCREENX-W/2, 0);
+	// cvMoveWindow(win_gallery, 0, 0);
+	// cvMoveWindow(win_color, SCREENX-W/2, 0);
 	cvMoveWindow(win_hand, SCREENX-W/2, H/2);
-	cvResizeWindow(win_color, W/2, H/2);
+	// cvResizeWindow(win_color, W/2, H/2);
 	
 	for (;;) {
-		IplImage *depth, *tmp, *body, *hand;
-		IplImage *a, *b;
+		IplImage *depth, /* *tmp, */ *body, *hand;
+		IplImage *a; // *b;
 		CvSeq *cnt;
 		CvPoint cent;
 		int z, p, k; 
 		
-		tmp = freenect_sync_get_rgb_cv(0);
-		cvCvtColor(tmp, color, CV_RGB2BGR);
+		// tmp = freenect_sync_get_rgb_cv(0);
+		// cvCvtColor(tmp, color, CV_RGB2BGR);
 		depth = freenect_sync_get_depth_cv(0);
 		
 		body = body_detection(depth);
@@ -131,38 +132,31 @@ int main (int argc, char *argv[])
 
 		if (cvhmm_get_gesture_sequence(p, cent, &seq)) {
 			
-			int g = cvhmm_classify_gesture(models, num, seq, 0);
+			int g = cvhmm_classify_gesture(models, num, seq, 0); g++;
 
 			switch (g) {
-			case LEFT:
-				idx = --idx <= 0 ? 0 : idx;
+			case 0:
+				fprintf(stderr, "Recognized gesture 0\n\n");
 				break;
-			case RIGHT:
-				idx = ++idx >= NUM ? NUM-1 : idx;
-				break;
-			case UP:
-				++state[idx].zoom;
-				break;
-			case DOWN:
-				state[idx].zoom = --state[idx].zoom <= 0 ? 0 :
-				state[idx].zoom;
+			case 1:
+				fprintf(stderr, "Recognized gesture 1\n\n");
 				break;
 			}
 
-			printf("state: idx=%d, zoom=%d\n", idx, state[idx].zoom);
+			// printf("state: idx=%d, zoom=%d\n", idx, state[idx].zoom);
 			update = 1;
 		} else {
 			update = 0;
 		}
 
 		a = draw_depth_hand(cnt, p);
-		b = draw_current_image(gallery[idx], state[idx]);
+		// b = draw_current_image(gallery[idx], state[idx]);
 
-		cvShowImage(win_color, color);
-		cvResizeWindow(win_color, W/2, H/2);
+		// cvShowImage(win_color, color);
+		// cvResizeWindow(win_color, W/2, H/2);
 		cvShowImage(win_hand, a);
 		cvResizeWindow(win_hand, W/2, H/2);
-		cvShowImage(win_gallery, b);
+		// cvShowImage(win_gallery, b);
 		
 		if ((k = cvWaitKey(T)) == 'q')
 			break;
@@ -171,11 +165,11 @@ int main (int argc, char *argv[])
 	freenect_sync_stop();
 
 	cvDestroyAllWindows();
-	gallery_free(gallery);
+	// gallery_free(gallery);
 
 	return 0;
 }
-
+/*
 char *fix_file_path (char *name)
 {
 	static char file[MAX_STR_LEN];
@@ -213,7 +207,7 @@ void gallery_free (IplImage **gallery)
 		cvReleaseImage(&(gallery[i]));
 	}
 }
-
+*/
 IplImage* draw_depth_hand (CvSeq *cnt, int type)
 {
 	static IplImage *img = NULL;
@@ -231,7 +225,7 @@ IplImage* draw_depth_hand (CvSeq *cnt, int type)
 	return img;
 }
 
-
+/*
 IplImage* draw_current_image (IplImage *img, GState state)
 {
 	static IplImage *tmp = NULL;
@@ -257,19 +251,16 @@ IplImage* draw_current_image (IplImage *img, GState state)
 
 	return tmp;
 }
-
+*/
 void parse_args (int argc, char **argv)
 {
 	int c;
 
 	opterr=0;
-	while ((c = getopt(argc,argv,"i:d:h")) != -1) {
+	while ((c = getopt(argc,argv,"i:h")) != -1) {
 		switch (c) {
 		case 'i':
 			infile = optarg;
-			break;
-		case 'd':
-			dir = optarg;
 			break;
 		case 'h':
 		default:
@@ -277,7 +268,7 @@ void parse_args (int argc, char **argv)
 			exit(-1);
 		}
 	}
-	if (infile == NULL || dir == NULL) {
+	if (infile == NULL) {
 		usage();
 		exit(-1);
 	}
@@ -285,8 +276,7 @@ void parse_args (int argc, char **argv)
 
 void usage (void)
 {
-	printf("usage: demogesture -i [file] -d [dir] [-h]\n");
+	printf("usage: ./main -i [file] [-h]\n");
 	printf("  -i  gestures models yml file\n");
-	printf("  -d  imgs direcotry\n");
 	printf("  -h  show this message\n");
 }
