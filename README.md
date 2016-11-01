@@ -19,7 +19,9 @@ This application was developed using the following libraries. Some notable depen
 
 ### Linux
 
-To compile the program, simply clone the repository and run `make all` in the project directory. Ensure that all the required libraries listed above are installed and configured for your computer.
+>Note: Ensure that all the required libraries listed above are installed and configured for your computer. If you are configuring libfreenect with `cmake`, be sure to use the option `-DBUILD_CV=ON`. Similarly, use the option `-DWITH_OPENGL=ON` when configuring OpenCV.
 
->Note: if you are configuring libfreenect with `cmake`, be sure to use the option `-DBUILD_CV=ON`. Similarly, use the option `-DWITH_OPENGL=ON` when configuring OpenCV.
+1. Clone this repository and `cd` to the source directory.
+2. Create a new folder called `XKin` and clone the [XKin library repository](https://github.com/fpeder/XKin) into that folder. Follow the instructions provided to compile it.
+3. Return to the source directory and run `make`.
 
