@@ -1,7 +1,10 @@
 fftw*
 libfreenect*
 opencv*
+portaudio*
 XKin*
-
+*.zip
+*.tgz
+main
 *~
 
