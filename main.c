@@ -27,10 +27,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// #include "./XKin/config.h"
-
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <string.h>
@@ -51,11 +50,11 @@
 #define WIN_TYPE CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE
 
 enum {
-        W=640,
-        H=480,
+	W=640,
+	H=480,
 	GW=128,
 	GH=128,
-        T=20,
+	T=10,
 	MAX_STR_LEN=50,
 	NUM=3,
 	UP=0,
@@ -64,20 +63,12 @@ enum {
 	RIGHT=2,
 };
 
-int update = 1;
+bool debug_stream = true;
+bool update = true;
 char *infile = NULL;
-// char *dir = NULL;
+const int MAX_POINTS = 4;
 
-/* typedef struct GState {
-	int zoom;
-	int rot;
-} GState; */
-
-// char*          fix_file_path           (char*);
 IplImage*      draw_depth_hand         (CvSeq*, int);
-// void           gallery_init            (IplImage**, GState*);
-// void           gallery_free            (IplImage**);
-// IplImage*      draw_current_image      (IplImage*, GState);
 int            buffered_classfy        (int);
 void           draw_trajectory         (IplImage*,CvSeq*);
 void           parse_args              (int,char**);
@@ -86,39 +77,29 @@ void           usage                   (void);
 
 int main (int argc, char *argv[])
 {
-	// IplImage *gallery[NUM], *color;
 	CvHMM *models;
-	// GState state[NUM];
-	int num; // idx=0, zoom=0;
+	int num;
 	ptseq seq;
-	// const char *win_gallery = "gallery";
-	// const char *win_color = "color image";
 	const char *win_hand = "depth hand";
+
+	CvPoint points[MAX_POINTS];
+	int front = 0, count = 0;
 
 	parse_args(argc,argv);
 
 	seq = ptseq_init();
 	models = cvhmm_read(infile, &num);
-	// color = cvCreateImage(cvSize(W, H), 8, 3);
-	// gallery_init(gallery, state);
 
-	// cvNamedWindow(win_gallery, WIN_TYPE);
-	// cvNamedWindow(win_color, WIN_TYPE);
 	cvNamedWindow(win_hand, WIN_TYPE);
-	// cvMoveWindow(win_gallery, 0, 0);
-	// cvMoveWindow(win_color, SCREENX-W/2, 0);
 	cvMoveWindow(win_hand, SCREENX-W/2, H/2);
-	// cvResizeWindow(win_color, W/2, H/2);
 	
-	for (;;) {
-		IplImage *depth, /* *tmp, */ *body, *hand;
-		IplImage *a; // *b;
+	while (true) {
+		IplImage *depth, *body, *hand;
+		IplImage *a;
 		CvSeq *cnt;
 		CvPoint cent;
-		int z, p, k; 
+		int z, p, i; 
 		
-		// tmp = freenect_sync_get_rgb_cv(0);
-		// cvCvtColor(tmp, color, CV_RGB2BGR);
 		depth = freenect_sync_get_depth_cv(0);
 		
 		body = body_detection(depth);
@@ -126,6 +107,22 @@ int main (int argc, char *argv[])
 
 		if (!get_hand_contour_basic(hand, &cnt, &cent))
 			continue;
+
+		if (count < MAX_POINTS) {
+			points[(front + count) % MAX_POINTS] = cent;
+			count++;
+		}
+		else {
+			points[front] = cent;
+			front = (front + 1) % MAX_POINTS;
+		}
+
+		if (debug_stream) {
+			for (i = 0; i < MAX_POINTS; i++) {
+				fprintf(stderr, "(%i, %i), ", points[(front + i) % MAX_POINTS].x, points[(front + i) % MAX_POINTS].y);
+			}
+			fprintf(stderr, "\n");
+		}
 
 		if ((p = basic_posture_classification(cnt)) == -1)
 			continue;
@@ -136,78 +133,34 @@ int main (int argc, char *argv[])
 
 			switch (g) {
 			case 0:
-				fprintf(stderr, "Recognized gesture 0\n\n");
+				fprintf(stderr, "Recognized beat 1\n\n");
 				break;
 			case 1:
-				fprintf(stderr, "Recognized gesture 1\n\n");
+				fprintf(stderr, "Recognized beat 2\n\n");
 				break;
 			}
 
-			// printf("state: idx=%d, zoom=%d\n", idx, state[idx].zoom);
-			update = 1;
+			update = true;
 		} else {
-			update = 0;
+			update = false;
 		}
 
 		a = draw_depth_hand(cnt, p);
-		// b = draw_current_image(gallery[idx], state[idx]);
-
-		// cvShowImage(win_color, color);
-		// cvResizeWindow(win_color, W/2, H/2);
 		cvShowImage(win_hand, a);
 		cvResizeWindow(win_hand, W/2, H/2);
-		// cvShowImage(win_gallery, b);
-		
-		if ((k = cvWaitKey(T)) == 'q')
+
+		// Press any key to quit.
+		if (cvWaitKey(T) != -1)
 			break;
 	}
 
 	freenect_sync_stop();
 
 	cvDestroyAllWindows();
-	// gallery_free(gallery);
 
 	return 0;
 }
-/*
-char *fix_file_path (char *name)
-{
-	static char file[MAX_STR_LEN];
-	int last;
 
-	last = strlen(dir)-1;
-	if (dir[last] == '/')
-		dir[last] = '\0';
-	strcpy(file, dir);
-	strcat(file, "/");
-	strcat(file, name);
-	
-	return file;
-}
-
-void gallery_init (IplImage **gallery, GState *state)
-{
-	int i;
-	char *name;
-	char *img[] = {"lena.tif", "peppers.tif", "sail.tif"};
-
-	for (i=0; i<NUM; i++) {
-		name = fix_file_path(img[i]);
-		gallery[i] = cvLoadImage(name, CV_LOAD_IMAGE_COLOR);
-		assert(gallery[i]);
-		state[i].zoom = 0;
-	}
-}
-
-void gallery_free (IplImage **gallery)
-{
-	int i;
-
-	for (i=0; i<NUM; i++) {
-		cvReleaseImage(&(gallery[i]));
-	}
-}
-*/
 IplImage* draw_depth_hand (CvSeq *cnt, int type)
 {
 	static IplImage *img = NULL;
@@ -225,33 +178,6 @@ IplImage* draw_depth_hand (CvSeq *cnt, int type)
 	return img;
 }
 
-/*
-IplImage* draw_current_image (IplImage *img, GState state)
-{
-	static IplImage *tmp = NULL;
-	int w, h;
-	float f = F;
-
-	if(!update)
-		return tmp;
-	
-	if (tmp != NULL) 
-		cvReleaseImage(&tmp);
-	
-	if (state.zoom >= 1) {
-		w = GW * (f + state.zoom);
-		h = GH * (f + state.zoom);
-	} else {
-		w=GW;
-		h=GH;
-	}
-	
-	tmp = cvCreateImage(cvSize(w, h), 8, 3);
-	cvResize(img, tmp, CV_INTER_LINEAR);
-
-	return tmp;
-}
-*/
 void parse_args (int argc, char **argv)
 {
 	int c;
@@ -280,3 +206,4 @@ void usage (void)
 	printf("  -i  gestures models yml file\n");
 	printf("  -h  show this message\n");
 }
+

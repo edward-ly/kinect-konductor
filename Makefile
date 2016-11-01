@@ -3,15 +3,17 @@
 # CS 488 Senior Capstone Project
 # Makefile for Main Program
 
+XKIN_LIBS_DIR = ./XKin/build/lib
+
 EXECUTABLES = main
 CFLAGS = -Wall -ggdb -fPIC `pkg-config --cflags opencv`
-LIBRARIES = `pkg-config --libs opencv` -lfreenect -lfreenect_sync -lfreenect_cv -lportaudio
-
-XKIN_LIBS_DIR = ./XKin/build/lib
-XKIN_LIBS = ${XKIN_LIBS_DIR}/body/libbody.so ${XKIN_LIBS_DIR}/hand/libhand.so ${XKIN_LIBS_DIR}/posture/libposture.so ${XKIN_LIBS_DIR}/gesture/libgesture.so
+LIB_PATHS = -L${XKIN_LIBS_DIR}/body -L${XKIN_LIBS_DIR}/hand -L${XKIN_LIBS_DIR}/posture -L${XKIN_LIBS_DIR}/gesture -Wl,-R/usr/local/lib,-R${XKIN_LIBS_DIR}/body,-R${XKIN_LIBS_DIR}/hand,-R${XKIN_LIBS_DIR}/posture,-R${XKIN_LIBS_DIR}/gesture
+LIBS = `pkg-config --libs opencv` -lfreenect -lfreenect_sync -lfreenect_cv -lportaudio -lbody -lhand -lposture -lgesture
+# Other libraries already included from pkg-config command:
+# -lm -lpthread
 
 main: main.c
-	gcc ${CFLAGS} $< -o $@ ${LIBRARIES} ${XKIN_LIBS}
+	gcc ${CFLAGS} ${LIB_PATHS} $< -o $@ ${LIBS}
 
 clean:
 	rm -f ${EXECUTABLES}
