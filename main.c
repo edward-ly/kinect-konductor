@@ -1,5 +1,5 @@
 /*  
- * Copyright (c) 2012, Fabrizio Pedersoli
+ * XKin copyright (c) 2012, Fabrizio Pedersoli
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -68,10 +68,10 @@ bool update = true;
 char *infile = NULL;
 const int MAX_POINTS = 4;
 
-IplImage*      draw_depth_hand         (CvSeq*, int);
+IplImage*      draw_depth_hand         (CvSeq*, int, CvPoint[], int, int);
 int            buffered_classfy        (int);
-void           draw_trajectory         (IplImage*,CvSeq*);
-void           parse_args              (int,char**);
+void           draw_trajectory         (IplImage*, CvSeq*);
+void           parse_args              (int, char**);
 void           usage                   (void);
 
 
@@ -83,7 +83,7 @@ int main (int argc, char *argv[])
 	const char *win_hand = "depth hand";
 
 	CvPoint points[MAX_POINTS];
-	int front = 0, count = 0;
+	int front = 0, count = 0, accel;
 
 	parse_args(argc,argv);
 
@@ -117,11 +117,13 @@ int main (int argc, char *argv[])
 			front = (front + 1) % MAX_POINTS;
 		}
 
+		accel = (points[(front + 3) % MAX_POINTS].y - points[(front + 2) % MAX_POINTS].y) - (points[(front + 1) % MAX_POINTS].y - points[front].y);
+
 		if (debug_stream) {
 			for (i = 0; i < MAX_POINTS; i++) {
 				fprintf(stderr, "(%i, %i), ", points[(front + i) % MAX_POINTS].x, points[(front + i) % MAX_POINTS].y);
 			}
-			fprintf(stderr, "\n");
+			fprintf(stderr, "%i\n", accel);
 		}
 
 		if ((p = basic_posture_classification(cnt)) == -1)
@@ -145,7 +147,7 @@ int main (int argc, char *argv[])
 			update = false;
 		}
 
-		a = draw_depth_hand(cnt, p);
+		a = draw_depth_hand(cnt, p, points, front, count);
 		cvShowImage(win_hand, a);
 		cvResizeWindow(win_hand, W/2, H/2);
 
@@ -161,7 +163,7 @@ int main (int argc, char *argv[])
 	return 0;
 }
 
-IplImage* draw_depth_hand (CvSeq *cnt, int type)
+IplImage* draw_depth_hand (CvSeq *cnt, int type, CvPoint points[], int front, int count)
 {
 	static IplImage *img = NULL;
 	CvScalar color[] = {CV_RGB(255,0,0), CV_RGB(0,255,0)};
@@ -170,8 +172,11 @@ IplImage* draw_depth_hand (CvSeq *cnt, int type)
 		img = cvCreateImage(cvSize(W, H), 8, 3);
 
 	cvZero(img);
-	cvDrawContours(img, cnt, color[type], CV_RGB(0,0,255), 0,
-		       CV_FILLED, 8, cvPoint(0,0));
+	// cvDrawContours(img, cnt, color[type], CV_RGB(0,0,255), 0, CV_FILLED, 8, cvPoint(0,0));
+
+	int i;
+	for (i = 1; i < count; i++)
+		cvLine(img, points[(front + i - 1) % MAX_POINTS], points[(front + i) % MAX_POINTS], color[type], 2, 8, 0);
 
 	cvFlip(img, NULL, 1);
 
