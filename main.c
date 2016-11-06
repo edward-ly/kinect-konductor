@@ -1,5 +1,35 @@
+// File: main.c
+// Author: Edward Ly
+// Last Modified: 6 November 2016
+// Description:
+
+// Contains modified source code from the example files demogesture.c (XKin) and paex_saw.c (PortAudio) with the below licenses.
+
+/* 
+ * PortAudio is copyright (c) 1999-2000 Ross Bencina and Phil Burk
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files
+ * (the "Software"), to deal in the Software without restriction,
+ * including without limitation the rights to use, copy, modify, merge,
+ * publish, distribute, sublicense, and/or sell copies of the Software,
+ * and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+ * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR
+ * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+ * CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
 /*  
- * XKin copyright (c) 2012, Fabrizio Pedersoli
+ * XKin is copyright (c) 2012, Fabrizio Pedersoli
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,6 +60,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <math.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <string.h>
@@ -49,6 +80,9 @@
 #define F 1.25
 #define WIN_TYPE CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE
 
+#define NUM_MILLISECONDS   (50)
+#define SAMPLE_RATE   (44100)
+
 enum {
 	W=640,
 	H=480,
@@ -63,16 +97,23 @@ enum {
 	RIGHT=2,
 };
 
+typedef struct paData {
+    float left_phase;
+    float right_phase;
+} paData;
+
 bool debug_stream = true;
 bool update = true;
 char *infile = NULL;
-const int MAX_POINTS = 4;
+const int MAX_POINTS = 5;
+static paData data;
 
 IplImage*      draw_depth_hand         (CvSeq*, int, CvPoint[], int, int);
 int            buffered_classfy        (int);
 void           draw_trajectory         (IplImage*, CvSeq*);
 void           parse_args              (int, char**);
 void           usage                   (void);
+static int     paCallback              (const void*, void*, unsigned long, const PaStreamCallbackTimeInfo*, PaStreamCallbackFlags, void*);
 
 
 int main (int argc, char *argv[])
@@ -83,9 +124,20 @@ int main (int argc, char *argv[])
 	const char *win_hand = "depth hand";
 
 	CvPoint points[MAX_POINTS];
-	int front = 0, count = 0, accel;
+	int front = 0, count = 0, vel1, vel2, accel;
+	// bool beatIsReady = true;
 
-	parse_args(argc,argv);
+	PaStream *stream;
+	PaError err;
+	data.left_phase = data.right_phase = 0.0;
+
+	parse_args(argc, argv);
+
+	err = Pa_Initialize();
+	if (err != paNoError) goto error;
+
+    err = Pa_OpenDefaultStream(&stream, 0, 2, paFloat32, SAMPLE_RATE, 256, paCallback, &data);
+    if (err != paNoError) goto error;
 
 	seq = ptseq_init();
 	models = cvhmm_read(infile, &num);
@@ -98,7 +150,7 @@ int main (int argc, char *argv[])
 		IplImage *a;
 		CvSeq *cnt;
 		CvPoint cent;
-		int z, p, i; 
+		int z, p, i;
 		
 		depth = freenect_sync_get_depth_cv(0);
 		
@@ -117,21 +169,22 @@ int main (int argc, char *argv[])
 			front = (front + 1) % MAX_POINTS;
 		}
 
-		accel = (points[(front + 3) % MAX_POINTS].y - points[(front + 2) % MAX_POINTS].y) - (points[(front + 1) % MAX_POINTS].y - points[front].y);
+		vel2 = points[(front + MAX_POINTS - 1) % MAX_POINTS].y - points[(front + MAX_POINTS - 2) % MAX_POINTS].y;
+		vel1 = points[(front + MAX_POINTS - 3) % MAX_POINTS].y - points[(front + MAX_POINTS - 4) % MAX_POINTS].y;
+		accel = vel2 - vel1;
 
 		if (debug_stream) {
 			for (i = 0; i < MAX_POINTS; i++) {
 				fprintf(stderr, "(%i, %i), ", points[(front + i) % MAX_POINTS].x, points[(front + i) % MAX_POINTS].y);
 			}
-			fprintf(stderr, "%i\n", accel);
+			fprintf(stderr, "%i, %i, %i\n", vel1, vel2, accel);
 		}
 
 		if ((p = basic_posture_classification(cnt)) == -1)
 			continue;
 
 		if (cvhmm_get_gesture_sequence(p, cent, &seq)) {
-			
-			int g = cvhmm_classify_gesture(models, num, seq, 0); g++;
+			int g = cvhmm_classify_gesture(models, num, seq, 0);
 
 			switch (g) {
 			case 0:
@@ -141,6 +194,14 @@ int main (int argc, char *argv[])
 				fprintf(stderr, "Recognized beat 2\n\n");
 				break;
 			}
+
+			err = Pa_StartStream(stream);
+			if (err != paNoError) goto error;
+
+			Pa_Sleep(NUM_MILLISECONDS);
+
+			err = Pa_StopStream(stream);
+			if (err != paNoError) goto error;
 
 			update = true;
 		} else {
@@ -157,9 +218,48 @@ int main (int argc, char *argv[])
 	}
 
 	freenect_sync_stop();
-
 	cvDestroyAllWindows();
 
+	err = Pa_CloseStream(stream);
+	if (err != paNoError) goto error;
+	Pa_Terminate();
+
+	return err;
+
+error:
+	Pa_Terminate();
+	fprintf( stderr, "An error occured while using the portaudio stream\n" );
+	fprintf( stderr, "Error number: %d\n", err );
+	fprintf( stderr, "Error message: %s\n", Pa_GetErrorText( err ) );
+	return err;
+}
+
+/* This routine will be called by the PortAudio engine when audio is needed.
+** It may called at interrupt level on some machines so don't do anything
+** that could mess up the system like calling malloc() or free().
+*/
+static int paCallback( const void *inputBuffer, void *outputBuffer,
+                       unsigned long framesPerBuffer,
+                       const PaStreamCallbackTimeInfo* timeInfo,
+                       PaStreamCallbackFlags statusFlags,
+                       void *userData ) {
+	// Cast data passed through stream to our structure.
+	paData *data = (paData*)userData;
+	float *out = (float*)outputBuffer;
+	unsigned int i;
+	(void) inputBuffer; // Prevent unused variable warning.
+
+	for (i = 0; i < framesPerBuffer; i++) {
+		*out++ = data->left_phase;
+		*out++ = data->right_phase;
+		// Generate simple sawtooth phaser that ranges between -1.0 and 1.0.
+		data->left_phase += 0.01f;
+		// When signal reaches top, drop back down.
+		if( data->left_phase >= 1.0f ) data->left_phase -= 2.0f;
+		// Higher pitch so we can distinguish left and right.
+		data->right_phase += 0.03f;
+		if( data->right_phase >= 1.0f ) data->right_phase -= 2.0f;
+	}
 	return 0;
 }
 
