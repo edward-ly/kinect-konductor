@@ -103,9 +103,8 @@ typedef struct paData {
 } paData;
 
 bool debug_stream = true;
-bool update = true;
 char *infile = NULL;
-const int MAX_POINTS = 5;
+const int MAX_POINTS = 5, THRESHOLD = -20;
 static paData data;
 
 IplImage*      draw_depth_hand         (CvSeq*, int, CvPoint[], int, int);
@@ -116,22 +115,16 @@ void           usage                   (void);
 static int     paCallback              (const void*, void*, unsigned long, const PaStreamCallbackTimeInfo*, PaStreamCallbackFlags, void*);
 
 
-int main (int argc, char *argv[])
-{
-	CvHMM *models;
-	int num;
-	ptseq seq;
+int main (int argc, char *argv[]) {
 	const char *win_hand = "depth hand";
 
 	CvPoint points[MAX_POINTS];
 	int front = 0, count = 0, vel1, vel2, accel;
-	// bool beatIsReady = true;
+	bool beatIsReady = true;
 
 	PaStream *stream;
 	PaError err;
 	data.left_phase = data.right_phase = 0.0;
-
-	parse_args(argc, argv);
 
 	err = Pa_Initialize();
 	if (err != paNoError) goto error;
@@ -139,18 +132,15 @@ int main (int argc, char *argv[])
     err = Pa_OpenDefaultStream(&stream, 0, 2, paFloat32, SAMPLE_RATE, 256, paCallback, &data);
     if (err != paNoError) goto error;
 
-	seq = ptseq_init();
-	models = cvhmm_read(infile, &num);
-
 	cvNamedWindow(win_hand, WIN_TYPE);
-	cvMoveWindow(win_hand, SCREENX-W/2, H/2);
+	cvMoveWindow(win_hand, SCREENX - W/2, H/2);
 	
 	while (true) {
 		IplImage *depth, *body, *hand;
 		IplImage *a;
 		CvSeq *cnt;
 		CvPoint cent;
-		int z, p, i;
+		int z, i;
 		
 		depth = freenect_sync_get_depth_cv(0);
 		
@@ -170,7 +160,7 @@ int main (int argc, char *argv[])
 		}
 
 		vel2 = points[(front + MAX_POINTS - 1) % MAX_POINTS].y - points[(front + MAX_POINTS - 2) % MAX_POINTS].y;
-		vel1 = points[(front + MAX_POINTS - 3) % MAX_POINTS].y - points[(front + MAX_POINTS - 4) % MAX_POINTS].y;
+		vel1 = points[(front + 1) % MAX_POINTS].y - points[front].y;
 		accel = vel2 - vel1;
 
 		if (debug_stream) {
@@ -180,21 +170,7 @@ int main (int argc, char *argv[])
 			fprintf(stderr, "%i, %i, %i\n", vel1, vel2, accel);
 		}
 
-		if ((p = basic_posture_classification(cnt)) == -1)
-			continue;
-
-		if (cvhmm_get_gesture_sequence(p, cent, &seq)) {
-			int g = cvhmm_classify_gesture(models, num, seq, 0);
-
-			switch (g) {
-			case 0:
-				fprintf(stderr, "Recognized beat 1\n\n");
-				break;
-			case 1:
-				fprintf(stderr, "Recognized beat 2\n\n");
-				break;
-			}
-
+		if (beatIsReady && (vel1 > 0) && (vel2 < THRESHOLD)) {
 			err = Pa_StartStream(stream);
 			if (err != paNoError) goto error;
 
@@ -203,12 +179,13 @@ int main (int argc, char *argv[])
 			err = Pa_StopStream(stream);
 			if (err != paNoError) goto error;
 
-			update = true;
-		} else {
-			update = false;
+			beatIsReady = false;
 		}
 
-		a = draw_depth_hand(cnt, p, points, front, count);
+		if (!beatIsReady && (vel1 < 0) && (vel2 > 0))
+			beatIsReady = true;
+
+		a = draw_depth_hand(cnt, (int)beatIsReady, points, front, count);
 		cvShowImage(win_hand, a);
 		cvResizeWindow(win_hand, W/2, H/2);
 
@@ -281,34 +258,5 @@ IplImage* draw_depth_hand (CvSeq *cnt, int type, CvPoint points[], int front, in
 	cvFlip(img, NULL, 1);
 
 	return img;
-}
-
-void parse_args (int argc, char **argv)
-{
-	int c;
-
-	opterr=0;
-	while ((c = getopt(argc,argv,"i:h")) != -1) {
-		switch (c) {
-		case 'i':
-			infile = optarg;
-			break;
-		case 'h':
-		default:
-			usage();
-			exit(-1);
-		}
-	}
-	if (infile == NULL) {
-		usage();
-		exit(-1);
-	}
-}
-
-void usage (void)
-{
-	printf("usage: ./main -i [file] [-h]\n");
-	printf("  -i  gestures models yml file\n");
-	printf("  -h  show this message\n");
 }
 
