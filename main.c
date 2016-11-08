@@ -1,7 +1,7 @@
 // File: main.c
 // Author: Edward Ly
-// Last Modified: 6 November 2016
-// Description:
+// Last Modified: 7 November 2016
+// Description: A simple virtual conductor application for Kinect for Windows v1.
 
 // Contains modified source code from the example files demogesture.c (XKin) and paex_saw.c (PortAudio) with the below licenses.
 
@@ -92,8 +92,9 @@ bool debug_stream = false;
 bool debug_beat = true;
 char *infile = NULL;
 const int WIDTH = 640, HEIGHT = 480, TIMER = 10;
-const int MAX_POINTS = 5, THRESHOLD = 16;
+const int MAX_POINTS = 5, THRESHOLD = 16, NUM_BEATS = 4;
 const float MAX_ACCEL = 128.0;
+int currentBeat = -2;
 static paData data;
 int accel;
 
@@ -122,8 +123,7 @@ int main (int argc, char *argv[]) {
 	cvMoveWindow(win_hand, SCREENX - WIDTH/2, HEIGHT/2);
 	
 	while (true) {
-		IplImage *depth, *body, *hand;
-		IplImage *a;
+		IplImage *depth, *body, *hand, *a;
 		CvSeq *cnt;
 		CvPoint cent;
 		int z, i;
@@ -137,12 +137,11 @@ int main (int argc, char *argv[]) {
 			continue;
 
 		if (count < MAX_POINTS) {
-			points[(front + count) % MAX_POINTS] = cent;
-			count++;
+			points[(front + count++) % MAX_POINTS] = cent;
 		}
 		else {
-			points[front] = cent;
-			front = (front + 1) % MAX_POINTS;
+			points[front++] = cent;
+			front %= MAX_POINTS;
 		}
 
 		vel2 = points[(front + MAX_POINTS - 1) % MAX_POINTS].y - points[(front + MAX_POINTS - 3) % MAX_POINTS].y;
@@ -158,6 +157,8 @@ int main (int argc, char *argv[]) {
 
 		if (beatIsReady && (vel1 > 0) && (vel2 < THRESHOLD)) {
 			if (debug_beat) fprintf(stderr, "%i\n", accel);
+
+			currentBeat = (currentBeat + 1) % NUM_BEATS;
 
 			err = Pa_StartStream(stream);
 			if (err != paNoError) goto error;
@@ -217,15 +218,31 @@ static int paCallback(const void *inputBuffer, void *outputBuffer,
 	float volume = (float)accel / MAX_ACCEL;
 	if (volume > 1.0) volume = 1.0;
 
+	float ramp;
+	switch (currentBeat) {
+		case 0:
+			ramp = 0.01f; // note A4
+			break;
+		case 1:
+			ramp = 0.0125f; // note C#5
+			break;
+		case 2:
+			ramp = 0.015f; // note E5
+			break;
+		case 3:
+			ramp = 0.02f; // note A5
+			break;
+	}
+
 	for (i = 0; i < framesPerBuffer; i++) {
 		*out++ = data->left_phase;
 		*out++ = data->right_phase;
-		// Generate simple sawtooth phaser that ranges between -1.0 and 1.0.
-		data->left_phase += 0.01f * volume;
+		// Generate sawtooth phaser within range (-volume, +volume).
+		data->left_phase += ramp * volume;
 		// When signal reaches top, drop back down.
 		if (data->left_phase >= volume) data->left_phase -= 2.0f * volume;
 		// Higher pitch so we can distinguish left and right.
-		data->right_phase += 0.03f * volume;
+		data->right_phase += 2.0f * ramp * volume;
 		if (data->right_phase >= volume) data->right_phase -= 2.0f * volume;
 	}
 	return 0;
