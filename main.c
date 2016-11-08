@@ -61,6 +61,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <math.h>
+#include <time.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <string.h>
@@ -80,7 +81,7 @@
 #define F 1.25
 #define WIN_TYPE CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE
 
-#define NUM_MILLISECONDS 50
+#define NUM_MILLISECONDS 100
 #define SAMPLE_RATE 44100
 
 typedef struct paData {
@@ -98,6 +99,9 @@ int currentBeat = -2;
 static paData data;
 int accel;
 
+clock_t time1, time2;
+double seconds, BPM;
+
 IplImage*      draw_depth_hand         (CvSeq*, int, CvPoint[], int, int);
 static int     paCallback              (const void*, void*, unsigned long, const PaStreamCallbackTimeInfo*, PaStreamCallbackFlags, void*);
 
@@ -108,6 +112,7 @@ int main (int argc, char *argv[]) {
 	CvPoint points[MAX_POINTS];
 	int front = 0, count = 0, vel1, vel2;
 	bool beatIsReady = true;
+	time1 = clock();
 
 	PaStream *stream;
 	PaError err;
@@ -156,7 +161,12 @@ int main (int argc, char *argv[]) {
 		}
 
 		if (beatIsReady && (vel1 > 0) && (vel2 < THRESHOLD)) {
-			if (debug_beat) fprintf(stderr, "%i\n", accel);
+			time2 = clock();
+			seconds = (time2 - time1) / (double)CLOCKS_PER_SEC;
+			BPM = 60.0 / seconds;
+			time1 = time2;
+
+			if (debug_beat) fprintf(stderr, "%i, %f, %f\n", accel, seconds, BPM);
 
 			currentBeat = (currentBeat + 1) % NUM_BEATS;
 
