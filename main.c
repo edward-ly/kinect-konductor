@@ -80,38 +80,24 @@
 #define F 1.25
 #define WIN_TYPE CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE
 
-#define NUM_MILLISECONDS   (50)
-#define SAMPLE_RATE   (44100)
-
-enum {
-	W=640,
-	H=480,
-	GW=128,
-	GH=128,
-	T=10,
-	MAX_STR_LEN=50,
-	NUM=3,
-	UP=0,
-	DOWN=1,
-	LEFT=3,
-	RIGHT=2,
-};
+#define NUM_MILLISECONDS 50
+#define SAMPLE_RATE 44100
 
 typedef struct paData {
-    float left_phase;
-    float right_phase;
+	float left_phase;
+	float right_phase;
 } paData;
 
-bool debug_stream = true;
+bool debug_stream = false;
+bool debug_beat = true;
 char *infile = NULL;
-const int MAX_POINTS = 5, THRESHOLD = -20;
+const int WIDTH = 640, HEIGHT = 480, TIMER = 10;
+const int MAX_POINTS = 5, THRESHOLD = 16;
+const float MAX_ACCEL = 128.0;
 static paData data;
+int accel;
 
 IplImage*      draw_depth_hand         (CvSeq*, int, CvPoint[], int, int);
-int            buffered_classfy        (int);
-void           draw_trajectory         (IplImage*, CvSeq*);
-void           parse_args              (int, char**);
-void           usage                   (void);
 static int     paCallback              (const void*, void*, unsigned long, const PaStreamCallbackTimeInfo*, PaStreamCallbackFlags, void*);
 
 
@@ -119,7 +105,7 @@ int main (int argc, char *argv[]) {
 	const char *win_hand = "depth hand";
 
 	CvPoint points[MAX_POINTS];
-	int front = 0, count = 0, vel1, vel2, accel;
+	int front = 0, count = 0, vel1, vel2;
 	bool beatIsReady = true;
 
 	PaStream *stream;
@@ -129,11 +115,11 @@ int main (int argc, char *argv[]) {
 	err = Pa_Initialize();
 	if (err != paNoError) goto error;
 
-    err = Pa_OpenDefaultStream(&stream, 0, 2, paFloat32, SAMPLE_RATE, 256, paCallback, &data);
-    if (err != paNoError) goto error;
+	err = Pa_OpenDefaultStream(&stream, 0, 2, paFloat32, SAMPLE_RATE, 256, paCallback, &data);
+	if (err != paNoError) goto error;
 
 	cvNamedWindow(win_hand, WIN_TYPE);
-	cvMoveWindow(win_hand, SCREENX - W/2, H/2);
+	cvMoveWindow(win_hand, SCREENX - WIDTH/2, HEIGHT/2);
 	
 	while (true) {
 		IplImage *depth, *body, *hand;
@@ -159,9 +145,9 @@ int main (int argc, char *argv[]) {
 			front = (front + 1) % MAX_POINTS;
 		}
 
-		vel2 = points[(front + MAX_POINTS - 1) % MAX_POINTS].y - points[(front + MAX_POINTS - 2) % MAX_POINTS].y;
-		vel1 = points[(front + 1) % MAX_POINTS].y - points[front].y;
-		accel = vel2 - vel1;
+		vel2 = points[(front + MAX_POINTS - 1) % MAX_POINTS].y - points[(front + MAX_POINTS - 3) % MAX_POINTS].y;
+		vel1 = points[(front + 2) % MAX_POINTS].y - points[front].y;
+		accel = abs(vel2 - vel1);
 
 		if (debug_stream) {
 			for (i = 0; i < MAX_POINTS; i++) {
@@ -171,6 +157,8 @@ int main (int argc, char *argv[]) {
 		}
 
 		if (beatIsReady && (vel1 > 0) && (vel2 < THRESHOLD)) {
+			if (debug_beat) fprintf(stderr, "%i\n", accel);
+
 			err = Pa_StartStream(stream);
 			if (err != paNoError) goto error;
 
@@ -187,10 +175,10 @@ int main (int argc, char *argv[]) {
 
 		a = draw_depth_hand(cnt, (int)beatIsReady, points, front, count);
 		cvShowImage(win_hand, a);
-		cvResizeWindow(win_hand, W/2, H/2);
+		cvResizeWindow(win_hand, WIDTH/2, HEIGHT/2);
 
 		// Press any key to quit.
-		if (cvWaitKey(T) != -1)
+		if (cvWaitKey(TIMER) != -1)
 			break;
 	}
 
@@ -205,9 +193,9 @@ int main (int argc, char *argv[]) {
 
 error:
 	Pa_Terminate();
-	fprintf( stderr, "An error occured while using the portaudio stream\n" );
-	fprintf( stderr, "Error number: %d\n", err );
-	fprintf( stderr, "Error message: %s\n", Pa_GetErrorText( err ) );
+	fprintf(stderr, "An error occured while using the portaudio stream\n");
+	fprintf(stderr, "Error number: %d\n", err);
+	fprintf(stderr, "Error message: %s\n", Pa_GetErrorText(err));
 	return err;
 }
 
@@ -215,38 +203,40 @@ error:
 ** It may called at interrupt level on some machines so don't do anything
 ** that could mess up the system like calling malloc() or free().
 */
-static int paCallback( const void *inputBuffer, void *outputBuffer,
-                       unsigned long framesPerBuffer,
-                       const PaStreamCallbackTimeInfo* timeInfo,
-                       PaStreamCallbackFlags statusFlags,
-                       void *userData ) {
+static int paCallback(const void *inputBuffer, void *outputBuffer,
+                      unsigned long framesPerBuffer,
+                      const PaStreamCallbackTimeInfo* timeInfo,
+                      PaStreamCallbackFlags statusFlags,
+                      void *userData) {
 	// Cast data passed through stream to our structure.
 	paData *data = (paData*)userData;
 	float *out = (float*)outputBuffer;
 	unsigned int i;
 	(void) inputBuffer; // Prevent unused variable warning.
 
+	float volume = (float)accel / MAX_ACCEL;
+	if (volume > 1.0) volume = 1.0;
+
 	for (i = 0; i < framesPerBuffer; i++) {
 		*out++ = data->left_phase;
 		*out++ = data->right_phase;
 		// Generate simple sawtooth phaser that ranges between -1.0 and 1.0.
-		data->left_phase += 0.01f;
+		data->left_phase += 0.01f * volume;
 		// When signal reaches top, drop back down.
-		if( data->left_phase >= 1.0f ) data->left_phase -= 2.0f;
+		if (data->left_phase >= volume) data->left_phase -= 2.0f * volume;
 		// Higher pitch so we can distinguish left and right.
-		data->right_phase += 0.03f;
-		if( data->right_phase >= 1.0f ) data->right_phase -= 2.0f;
+		data->right_phase += 0.03f * volume;
+		if (data->right_phase >= volume) data->right_phase -= 2.0f * volume;
 	}
 	return 0;
 }
 
-IplImage* draw_depth_hand (CvSeq *cnt, int type, CvPoint points[], int front, int count)
-{
+IplImage* draw_depth_hand (CvSeq *cnt, int type, CvPoint points[], int front, int count) {
 	static IplImage *img = NULL;
 	CvScalar color[] = {CV_RGB(255,0,0), CV_RGB(0,255,0)};
 
 	if (img == NULL)
-		img = cvCreateImage(cvSize(W, H), 8, 3);
+		img = cvCreateImage(cvSize(WIDTH, HEIGHT), 8, 3);
 
 	cvZero(img);
 	// cvDrawContours(img, cnt, color[type], CV_RGB(0,0,255), 0, CV_FILLED, 8, cvPoint(0,0));
