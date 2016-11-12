@@ -76,41 +76,48 @@
 #include "./XKin/include/libposture.h"
 #include "./XKin/include/libgesture.h"
 
-#define SCREENX 1200
-#define SCREENY 800
-#define F 1.25
-#define WIN_TYPE CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE
-
-#define NUM_MILLISECONDS 100
-#define SAMPLE_RATE 44100
-
 typedef struct paData {
 	float left_phase;
 	float right_phase;
 } paData;
 
-bool debug_stream = false;
-bool debug_beat = true;
-char *infile = NULL;
+typedef struct point_t {
+	CvPoint point;
+	clock_t time;
+} point_t;
+
+const int SCREENX = 1200, SCREENY = 800;
+const int WIN_TYPE = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE;
+const int NUM_MILLISECONDS = 100, SAMPLE_RATE = 44100, A = 440;
 const int WIDTH = 640, HEIGHT = 480, TIMER = 10;
-const int MAX_POINTS = 5, THRESHOLD = 16, NUM_BEATS = 4;
-const float MAX_ACCEL = 128.0;
+const int MAX_POINTS = 5, THRESHOLD = 256, NUM_BEATS = 4;
+const double MIN_DISTANCE = 30, MAX_DISTANCE = 200;
+const double MAX_ACCEL = 32768.0;
+
+bool debug_stream = true;
+bool debug_time = false;
+bool debug_beat = true;
 int currentBeat = -2;
 static paData data;
-int accel;
-
 clock_t time1, time2;
 double seconds, BPM;
+int front = 0, count = 0, vel1, vel2;
+double accel;
 
-IplImage*      draw_depth_hand         (CvSeq*, int, CvPoint[], int, int);
+double         diffclock               (clock_t, clock_t);
+double         distance                (CvPoint, CvPoint);
+double         velocity_y              (point_t, point_t);
+double         midi_to_freq            (int);
+float          freq_to_ramp            (double);
+float          midi_to_ramp            (int);
+IplImage*      draw_depth_hand         (CvSeq*, int, point_t[]);
 static int     paCallback              (const void*, void*, unsigned long, const PaStreamCallbackTimeInfo*, PaStreamCallbackFlags, void*);
 
+//////////////////////////////////////////////////////
 
 int main (int argc, char *argv[]) {
 	const char *win_hand = "depth hand";
-
-	CvPoint points[MAX_POINTS];
-	int front = 0, count = 0, vel1, vel2;
+	point_t points[MAX_POINTS];
 	bool beatIsReady = true;
 	time1 = clock();
 
@@ -142,31 +149,38 @@ int main (int argc, char *argv[]) {
 			continue;
 
 		if (count < MAX_POINTS) {
-			points[(front + count++) % MAX_POINTS] = cent;
+			points[(front + count) % MAX_POINTS].time = clock();
+			points[(front + count++) % MAX_POINTS].point = cent;
 		}
 		else {
-			points[front++] = cent;
+			points[front].time = clock();
+			points[front++].point = cent;
 			front %= MAX_POINTS;
 		}
 
-		vel2 = points[(front + MAX_POINTS - 1) % MAX_POINTS].y - points[(front + MAX_POINTS - 3) % MAX_POINTS].y;
-		vel1 = points[(front + 2) % MAX_POINTS].y - points[front].y;
-		accel = abs(vel2 - vel1);
+		vel2 = -1 * velocity_y(points[(front + MAX_POINTS - 1) % MAX_POINTS], points[(front + MAX_POINTS - 3) % MAX_POINTS]);
+		vel1 = -1 * velocity_y(points[(front + 2) % MAX_POINTS], points[front]);
+		accel = vel2 - vel1 / diffclock(points[(front + MAX_POINTS - 1) % MAX_POINTS].time, points[(front + 2) % MAX_POINTS].time);
 
 		if (debug_stream) {
-			for (i = 0; i < MAX_POINTS; i++) {
-				fprintf(stderr, "(%i, %i), ", points[(front + i) % MAX_POINTS].x, points[(front + i) % MAX_POINTS].y);
-			}
-			fprintf(stderr, "%i, %i, %i\n", vel1, vel2, accel);
+			for (i = 0; i < MAX_POINTS; i++)
+				fprintf(stderr, "(%i, %i), ", points[(front + i) % MAX_POINTS].point.x, points[(front + i) % MAX_POINTS].point.y);
+			fprintf(stderr, "%i, %i, %f\n", vel1, vel2, accel);
 		}
 
-		if (beatIsReady && (vel1 > 0) && (vel2 < THRESHOLD)) {
+		if (debug_time) {
+			for (i = 1; i < MAX_POINTS; i++)
+				fprintf(stderr, "%f, ", diffclock(points[(front + i) % MAX_POINTS].time, points[(front + i - 1) % MAX_POINTS].time));
+			fprintf(stderr, "\n");
+		}
+
+		if (beatIsReady && (vel1 < 0) && (vel2 > THRESHOLD)) {
 			time2 = clock();
-			seconds = (time2 - time1) / (double)CLOCKS_PER_SEC;
+			seconds = diffclock(time2, time1);
 			BPM = 60.0 / seconds;
 			time1 = time2;
 
-			if (debug_beat) fprintf(stderr, "%i, %f, %f\n", accel, seconds, BPM);
+			if (debug_beat) fprintf(stderr, "%f, %f, %f\n", accel, seconds, BPM);
 
 			currentBeat = (currentBeat + 1) % NUM_BEATS;
 
@@ -181,10 +195,10 @@ int main (int argc, char *argv[]) {
 			beatIsReady = false;
 		}
 
-		if (!beatIsReady && (vel1 < 0) && (vel2 > 0))
+		if (!beatIsReady && (vel1 > 0) && (vel2 < 0))
 			beatIsReady = true;
 
-		a = draw_depth_hand(cnt, (int)beatIsReady, points, front, count);
+		a = draw_depth_hand(cnt, (int)beatIsReady, points);
 		cvShowImage(win_hand, a);
 		cvResizeWindow(win_hand, WIDTH/2, HEIGHT/2);
 
@@ -210,15 +224,43 @@ error:
 	return err;
 }
 
+//////////////////////////////////////////////////////
+
+double diffclock (clock_t end, clock_t beginning) {
+	return (end - beginning) / (double)CLOCKS_PER_SEC;
+}
+
+double distance (CvPoint point1, CvPoint point2) {
+	int x = point2.x - point1.x;
+	int y = point2.y - point1.y;
+	return sqrt((double)((x * x) + (y * y)));
+}
+
+double velocity_y (point_t end, point_t beginning) {
+	return (end.point.y - beginning.point.y) / diffclock(end.time, beginning.time);
+}
+
+double midi_to_freq (int note) {
+	return pow(2, (note - 69) / 12.0) * A;
+}
+
+float freq_to_ramp (double freq) {
+	return freq / SAMPLE_RATE;
+}
+
+float midi_to_ramp (int note) {
+	return freq_to_ramp(midi_to_freq(note));
+}
+
 /* This routine will be called by the PortAudio engine when audio is needed.
 ** It may called at interrupt level on some machines so don't do anything
 ** that could mess up the system like calling malloc() or free().
 */
-static int paCallback(const void *inputBuffer, void *outputBuffer,
-                      unsigned long framesPerBuffer,
-                      const PaStreamCallbackTimeInfo* timeInfo,
-                      PaStreamCallbackFlags statusFlags,
-                      void *userData) {
+static int paCallback (const void *inputBuffer, void *outputBuffer,
+                       unsigned long framesPerBuffer,
+                       const PaStreamCallbackTimeInfo* timeInfo,
+                       PaStreamCallbackFlags statusFlags,
+                       void *userData) {
 	// Cast data passed through stream to our structure.
 	paData *data = (paData*)userData;
 	float *out = (float*)outputBuffer;
@@ -231,16 +273,16 @@ static int paCallback(const void *inputBuffer, void *outputBuffer,
 	float ramp;
 	switch (currentBeat) {
 		case 0:
-			ramp = 0.01f; // note A4
+			ramp = midi_to_ramp(69); // note A4
 			break;
 		case 1:
-			ramp = 0.0125f; // note C#5
+			ramp = midi_to_ramp(73); // note C#5
 			break;
 		case 2:
-			ramp = 0.015f; // note E5
+			ramp = midi_to_ramp(76); // note E5
 			break;
 		case 3:
-			ramp = 0.02f; // note A5
+			ramp = midi_to_ramp(81); // note A5
 			break;
 	}
 
@@ -258,7 +300,7 @@ static int paCallback(const void *inputBuffer, void *outputBuffer,
 	return 0;
 }
 
-IplImage* draw_depth_hand (CvSeq *cnt, int type, CvPoint points[], int front, int count) {
+IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t points[]) {
 	static IplImage *img = NULL;
 	CvScalar color[] = {CV_RGB(255,0,0), CV_RGB(0,255,0)};
 
@@ -270,7 +312,7 @@ IplImage* draw_depth_hand (CvSeq *cnt, int type, CvPoint points[], int front, in
 
 	int i;
 	for (i = 1; i < count; i++)
-		cvLine(img, points[(front + i - 1) % MAX_POINTS], points[(front + i) % MAX_POINTS], color[type], 2, 8, 0);
+		cvLine(img, points[(front + i - 1) % MAX_POINTS].point, points[(front + i) % MAX_POINTS].point, color[type], 2, 8, 0);
 
 	cvFlip(img, NULL, 1);
 
