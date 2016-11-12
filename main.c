@@ -91,7 +91,7 @@ const int WIN_TYPE = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE;
 const int NUM_MILLISECONDS = 100, SAMPLE_RATE = 44100, A = 440;
 const int WIDTH = 640, HEIGHT = 480, TIMER = 10;
 const int MAX_POINTS = 5, THRESHOLD = 256, NUM_BEATS = 4;
-const double MIN_DISTANCE = 30, MAX_DISTANCE = 200;
+const double MIN_DISTANCE = 12, MAX_DISTANCE = 192;
 const double MAX_ACCEL = 32768.0;
 
 bool debug_stream = true;
@@ -105,6 +105,7 @@ int front = 0, count = 0, vel1, vel2;
 double accel;
 
 double         diffclock               (clock_t, clock_t);
+bool           is_inside_window        (CvPoint);
 double         distance                (CvPoint, CvPoint);
 double         velocity_y              (point_t, point_t);
 double         midi_to_freq            (int);
@@ -119,7 +120,13 @@ int main (int argc, char *argv[]) {
 	const char *win_hand = "depth hand";
 	point_t points[MAX_POINTS];
 	bool beatIsReady = true;
-	time1 = clock();
+	time1 = clock(); int n;
+
+	for (n = 0; n < MAX_POINTS; n++) {
+		points[n].point.x = WIDTH / 2;
+		points[n].point.y = HEIGHT / 2;
+		points[n].time = time1;
+	}
 
 	PaStream *stream;
 	PaError err;
@@ -148,59 +155,67 @@ int main (int argc, char *argv[]) {
 		if (!get_hand_contour_basic(hand, &cnt, &cent))
 			continue;
 
-		if (count < MAX_POINTS) {
-			points[(front + count) % MAX_POINTS].time = clock();
-			points[(front + count++) % MAX_POINTS].point = cent;
+		if (!is_inside_window(cent))
+			continue;
+
+		if ((count == 0) || distance(cent, points[(front + count) % MAX_POINTS].point) < MAX_DISTANCE) {
+			if (count < MAX_POINTS) {
+				points[(front + count) % MAX_POINTS].time = clock();
+				points[(front + count++) % MAX_POINTS].point = cent;
+			}
+			else {
+				points[front].time = clock();
+				points[front++].point = cent;
+				front %= MAX_POINTS;
+			}
+
+			vel2 = -1 * velocity_y(points[(front + MAX_POINTS - 1) % MAX_POINTS], points[(front + MAX_POINTS - 3) % MAX_POINTS]);
+			vel1 = -1 * velocity_y(points[(front + 2) % MAX_POINTS], points[front]);
+			accel = vel2 - vel1 / diffclock(points[(front + MAX_POINTS - 1) % MAX_POINTS].time, points[(front + 2) % MAX_POINTS].time);
+
+			if (debug_stream) {
+				for (i = 0; i < MAX_POINTS; i++)
+					fprintf(stderr, "(%i, %i), ", points[(front + i) % MAX_POINTS].point.x, points[(front + i) % MAX_POINTS].point.y);
+				fprintf(stderr, "%i, %i, %f\n", vel1, vel2, accel);
+			}
+
+			if (debug_time) {
+				for (i = 1; i < MAX_POINTS; i++)
+					fprintf(stderr, "%f, ", diffclock(points[(front + i) % MAX_POINTS].time, points[(front + i - 1) % MAX_POINTS].time));
+				fprintf(stderr, "\n");
+			}
+
+			if (beatIsReady
+					&& (distance(points[(front + MAX_POINTS - 1) % MAX_POINTS].point, points[front].point) > MIN_DISTANCE)
+					&& (vel1 < 0)
+					&& (vel2 > THRESHOLD)) {
+				time2 = clock();
+				seconds = diffclock(time2, time1);
+				BPM = 60.0 / seconds;
+				time1 = time2;
+
+				if (debug_beat) fprintf(stderr, "%f, %f, %f\n", accel, seconds, BPM);
+
+				currentBeat = (currentBeat + 1) % NUM_BEATS;
+
+				err = Pa_StartStream(stream);
+				if (err != paNoError) goto error;
+
+				Pa_Sleep(NUM_MILLISECONDS);
+
+				err = Pa_StopStream(stream);
+				if (err != paNoError) goto error;
+
+				beatIsReady = false;
+			}
+
+			if (!beatIsReady && (vel1 > 0) && (vel2 < 0))
+				beatIsReady = true;
+
+			a = draw_depth_hand(cnt, (int)beatIsReady, points);
+			cvShowImage(win_hand, a);
+			cvResizeWindow(win_hand, WIDTH/2, HEIGHT/2);
 		}
-		else {
-			points[front].time = clock();
-			points[front++].point = cent;
-			front %= MAX_POINTS;
-		}
-
-		vel2 = -1 * velocity_y(points[(front + MAX_POINTS - 1) % MAX_POINTS], points[(front + MAX_POINTS - 3) % MAX_POINTS]);
-		vel1 = -1 * velocity_y(points[(front + 2) % MAX_POINTS], points[front]);
-		accel = vel2 - vel1 / diffclock(points[(front + MAX_POINTS - 1) % MAX_POINTS].time, points[(front + 2) % MAX_POINTS].time);
-
-		if (debug_stream) {
-			for (i = 0; i < MAX_POINTS; i++)
-				fprintf(stderr, "(%i, %i), ", points[(front + i) % MAX_POINTS].point.x, points[(front + i) % MAX_POINTS].point.y);
-			fprintf(stderr, "%i, %i, %f\n", vel1, vel2, accel);
-		}
-
-		if (debug_time) {
-			for (i = 1; i < MAX_POINTS; i++)
-				fprintf(stderr, "%f, ", diffclock(points[(front + i) % MAX_POINTS].time, points[(front + i - 1) % MAX_POINTS].time));
-			fprintf(stderr, "\n");
-		}
-
-		if (beatIsReady && (vel1 < 0) && (vel2 > THRESHOLD)) {
-			time2 = clock();
-			seconds = diffclock(time2, time1);
-			BPM = 60.0 / seconds;
-			time1 = time2;
-
-			if (debug_beat) fprintf(stderr, "%f, %f, %f\n", accel, seconds, BPM);
-
-			currentBeat = (currentBeat + 1) % NUM_BEATS;
-
-			err = Pa_StartStream(stream);
-			if (err != paNoError) goto error;
-
-			Pa_Sleep(NUM_MILLISECONDS);
-
-			err = Pa_StopStream(stream);
-			if (err != paNoError) goto error;
-
-			beatIsReady = false;
-		}
-
-		if (!beatIsReady && (vel1 > 0) && (vel2 < 0))
-			beatIsReady = true;
-
-		a = draw_depth_hand(cnt, (int)beatIsReady, points);
-		cvShowImage(win_hand, a);
-		cvResizeWindow(win_hand, WIDTH/2, HEIGHT/2);
 
 		// Press any key to quit.
 		if (cvWaitKey(TIMER) != -1)
@@ -228,6 +243,10 @@ error:
 
 double diffclock (clock_t end, clock_t beginning) {
 	return (end - beginning) / (double)CLOCKS_PER_SEC;
+}
+
+bool is_inside_window (CvPoint p) {
+	return (p.x >= 0) && (p.y >= 0) && (p.x < WIDTH) && (p.y < HEIGHT);
 }
 
 double distance (CvPoint point1, CvPoint point2) {
