@@ -90,19 +90,24 @@ const int SCREENX = 1200, SCREENY = 800;
 const int WIN_TYPE = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE;
 const int NUM_MILLISECONDS = 100, SAMPLE_RATE = 44100, A = 440;
 const int WIDTH = 640, HEIGHT = 480, TIMER = 10;
-const int MAX_POINTS = 5, THRESHOLD = 256, NUM_BEATS = 4;
+const int MAX_POINTS = 5, THRESHOLD = 256, BEATS_PER_MEASURE = 4;
 const double MIN_DISTANCE = 12, MAX_DISTANCE = 192;
 const double MAX_ACCEL = 32768.0;
 
 bool debug_stream = true;
 bool debug_time = false;
 bool debug_beat = true;
+
 int currentBeat = -2;
 static paData data;
 clock_t time1, time2;
 double seconds, BPM;
 int front = 0, count = 0, vel1, vel2;
 double accel;
+
+const int NUM_NOTES = 6;
+int notes[] = {60, 62, 63, 67, 68, 72};
+float ramp = 0;
 
 double         diffclock               (clock_t, clock_t);
 bool           is_inside_window        (CvPoint);
@@ -196,7 +201,8 @@ int main (int argc, char *argv[]) {
 
 				if (debug_beat) fprintf(stderr, "%f, %f, %f\n", accel, seconds, BPM);
 
-				currentBeat = (currentBeat + 1) % NUM_BEATS;
+				currentBeat = (currentBeat + 1) % BEATS_PER_MEASURE;
+				ramp = midi_to_ramp(notes[rand() % NUM_NOTES]);
 
 				err = Pa_StartStream(stream);
 				if (err != paNoError) goto error;
@@ -288,22 +294,6 @@ static int paCallback (const void *inputBuffer, void *outputBuffer,
 
 	float volume = (float)accel / MAX_ACCEL;
 	if (volume > 1.0) volume = 1.0;
-
-	float ramp;
-	switch (currentBeat) {
-		case 0:
-			ramp = midi_to_ramp(69); // note A4
-			break;
-		case 1:
-			ramp = midi_to_ramp(73); // note C#5
-			break;
-		case 2:
-			ramp = midi_to_ramp(76); // note E5
-			break;
-		case 3:
-			ramp = midi_to_ramp(81); // note A5
-			break;
-	}
 
 	for (i = 0; i < framesPerBuffer; i++) {
 		*out++ = data->left_phase;
