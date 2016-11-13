@@ -90,23 +90,23 @@ const int SCREENX = 1200, SCREENY = 800;
 const int WIN_TYPE = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE;
 const int NUM_MILLISECONDS = 100, SAMPLE_RATE = 44100, A = 440;
 const int WIDTH = 640, HEIGHT = 480, TIMER = 10;
-const int MAX_POINTS = 5, THRESHOLD = 256, BEATS_PER_MEASURE = 4;
-const double MIN_DISTANCE = 12, MAX_DISTANCE = 192;
-const double MAX_ACCEL = 32768.0;
+const int MAX_POINTS = 5, THRESHOLD = 256;
+const double MIN_DISTANCE = 12.0, MAX_DISTANCE = 224.0;
+const double MAX_ACCEL = 32768.0, BEATS_PER_MEASURE = 4.0;
 
-bool debug_stream = true;
+bool debug_stream = false;
 bool debug_time = false;
-bool debug_beat = true;
+bool debug_beat = false;
 
-int currentBeat = -2;
+double currentBeat = -5.0;
 static paData data;
 clock_t time1, time2;
 double seconds, BPM;
 int front = 0, count = 0, vel1, vel2;
 double accel;
 
-const int NUM_NOTES = 6;
-int notes[] = {60, 62, 63, 67, 68, 72};
+const int NUM_NOTES = 8;
+int notes[] = {60, 62, 63, 67, 68, 72, -1, -1};
 float ramp = 0;
 
 double         diffclock               (clock_t, clock_t);
@@ -124,12 +124,12 @@ static int     paCallback              (const void*, void*, unsigned long, const
 int main (int argc, char *argv[]) {
 	const char *win_hand = "depth hand";
 	point_t points[MAX_POINTS];
-	bool beatIsReady = true;
+	bool beatIsReady = false;
 	time1 = clock(); int n;
 
 	for (n = 0; n < MAX_POINTS; n++) {
-		points[n].point.x = WIDTH / 2;
-		points[n].point.y = HEIGHT / 2;
+		points[n].point.x = WIDTH/2;
+		points[n].point.y = HEIGHT/2;
 		points[n].time = time1;
 	}
 
@@ -193,30 +193,37 @@ int main (int argc, char *argv[]) {
 			if (beatIsReady
 					&& (distance(points[(front + MAX_POINTS - 1) % MAX_POINTS].point, points[front].point) > MIN_DISTANCE)
 					&& (vel1 < 0)
-					&& (vel2 > THRESHOLD)) {
+					&& (vel2 > THRESHOLD)
+					&& (remainder(currentBeat, 1.0) != 0.0)) {
 				time2 = clock();
 				seconds = diffclock(time2, time1);
 				BPM = 60.0 / seconds;
 				time1 = time2;
 
-				if (debug_beat) fprintf(stderr, "%f, %f, %f\n", accel, seconds, BPM);
+				currentBeat += 0.5;
+				int note = notes[rand() % NUM_NOTES];
+				if (debug_beat) fprintf(stderr, "%f, %i, %f, %f, %f\n", currentBeat, note, accel, seconds, BPM);
 
-				currentBeat = (currentBeat + 1) % BEATS_PER_MEASURE;
-				ramp = midi_to_ramp(notes[rand() % NUM_NOTES]);
+				if (note != -1) {
+					ramp = midi_to_ramp(note);
 
-				err = Pa_StartStream(stream);
-				if (err != paNoError) goto error;
+					err = Pa_StartStream(stream);
+					if (err != paNoError) goto error;
 
-				Pa_Sleep(NUM_MILLISECONDS);
+					Pa_Sleep(NUM_MILLISECONDS);
 
-				err = Pa_StopStream(stream);
-				if (err != paNoError) goto error;
+					err = Pa_StopStream(stream);
+					if (err != paNoError) goto error;
+				}
 
 				beatIsReady = false;
 			}
 
-			if (!beatIsReady && (vel1 > 0) && (vel2 < 0))
+			if (!beatIsReady && (vel1 > 0) && (vel2 < 0)
+					&& (remainder(currentBeat, 1.0) == 0.0)) {
+				currentBeat += 0.5;
 				beatIsReady = true;
+			}
 
 			a = draw_depth_hand(cnt, (int)beatIsReady, points);
 			cvShowImage(win_hand, a);
