@@ -69,6 +69,7 @@
 #include <opencv2/highgui/highgui_c.h>
 #include <libfreenect/libfreenect_sync.h>
 #include <libfreenect/libfreenect_cv.h>
+#include <fluidsynth.h>
 
 #include "./XKin/include/libbody.h"
 #include "./XKin/include/libhand.h"
@@ -80,6 +81,13 @@ typedef struct point_t {
 	clock_t time;
 } point_t;
 
+typedef struct note_t {
+	double beat;
+	int channel;
+	int key;
+	int noteOn;
+} note_t;
+
 const int SCREENX = 1200, SCREENY = 800;
 const int WIN_TYPE = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE;
 const int NUM_MILLISECONDS = 100, SAMPLE_RATE = 44100;
@@ -88,7 +96,7 @@ const int MAX_POINTS = 5, THRESHOLD = 256;
 const double MIN_DISTANCE = 12.0, MAX_DISTANCE = 224.0;
 const double MAX_ACCEL = 32768.0, BEATS_PER_MEASURE = 4.0;
 
-bool debug_stream = true;
+bool debug_stream = false;
 bool debug_time = false;
 bool debug_beat = true;
 
@@ -107,6 +115,50 @@ IplImage*      draw_depth_hand         (CvSeq*, int, point_t[]);
 //////////////////////////////////////////////////////
 
 int main (int argc, char *argv[]) {
+	if (argc < 3) {
+		fprintf(stderr, "Usage: %s [music] [soundfont]\n", argv[0]);
+		return -1;
+	}
+
+	FILE* musicFile;
+	musicFile = fopen(argv[1], "r");
+	if (musicFile == NULL) {
+		fprintf(stderr, "%s: Unable to open file %s\n", argv[0], argv[1]);
+		return -2;
+	}
+
+	fluid_settings_t* settings;
+	fluid_synth_t* synth;
+	fluid_audio_driver_t* adriver;
+	int sfont_id;
+
+	settings = new_fluid_settings();
+	if (settings == NULL) {
+		fprintf(stderr, "FluidSynth: failed to create the settings\n");
+		return 1;
+	}
+	synth = new_fluid_synth(settings);
+	if (synth == NULL) {
+		fprintf(stderr, "FluidSynth: failed to create the synthesizer\n");
+		delete_fluid_settings(settings);
+		return 2;
+	}
+	adriver = new_fluid_audio_driver(settings, synth);
+	if (adriver == NULL) {
+		fprintf(stderr, "FluidSynth: failed to create the audio driver\n");
+		delete_fluid_synth(synth);
+		delete_fluid_settings(settings);
+		return 3;
+	}
+	sfont_id = fluid_synth_sfload(synth, argv[2], 1);
+	if (sfont_id == FLUID_FAILED) {
+		fprintf(stderr, "FluidSynth: unable to open soundfont %s\n", argv[2]);
+		delete_fluid_audio_driver(adriver);
+		delete_fluid_synth(synth);
+		delete_fluid_settings(settings);
+		return 4;
+	}
+
 	const char *win_hand = "depth hand";
 	point_t points[MAX_POINTS];
 	bool beatIsReady = false;
@@ -178,6 +230,8 @@ int main (int argc, char *argv[]) {
 				currentBeat += 0.5;
 				if (debug_beat) fprintf(stderr, "%f, %f, %f, %f\n", currentBeat, accel, seconds, BPM);
 
+				fluid_synth_noteon(synth, 0, 60, 100);
+
 				beatIsReady = false;
 			}
 
@@ -185,6 +239,8 @@ int main (int argc, char *argv[]) {
 					&& (remainder(currentBeat, 1.0) == 0.0)) {
 				currentBeat += 0.5;
 				if (debug_beat) fprintf(stderr, "%f, %f\n", currentBeat, accel);
+
+				fluid_synth_noteoff(synth, 0, 60);
 
 				beatIsReady = true;
 			}
@@ -202,7 +258,12 @@ int main (int argc, char *argv[]) {
 	freenect_sync_stop();
 	cvDestroyAllWindows();
 
-	return 0;
+	delete_fluid_audio_driver(adriver);
+	delete_fluid_synth(synth);
+	delete_fluid_settings(settings);
+
+	fclose(musicFile);
+    return 0;
 }
 
 //////////////////////////////////////////////////////

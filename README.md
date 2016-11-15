@@ -13,16 +13,20 @@ This application was developed using the following libraries. Some notable depen
   * [OpenCV](http://opencv.org/)
   * [FFTW](http://fftw.org/)
 * [FluidSynth](http://www.fluidsynth.org/)
+* [JACK](http://jackaudio.org/)
 
 ## Setup
 
 ### Linux
 
->Note 1: Ensure that all the required libraries listed above are installed and configured for your computer. If you are configuring libfreenect with `cmake`, be sure to use the option `-DBUILD_CV=ON`.
->Note 2: Also ensure that you have a SoundFont file that conforms to the General MIDI standard and note its location on your computer. On Linux, we recommend the Fluid (R3) General MIDI SoundFont located at `/usr/share/sounds/sf2/FluidR3_GM.sf2`.
+>Ensure that all the required libraries listed above are installed and configured for your computer. If you are configuring libfreenect with `cmake`, be sure to use the option `-DBUILD_CV=ON`.
 
 1. Clone this repository and `cd` to the source directory.
 2. Create a new folder called `XKin` and clone the [XKin library repository](https://github.com/fpeder/XKin) into that folder. Follow the instructions provided to compile it.
 3. Return to the source directory and run `make`.
 4. Run the program with `./main <csv-file> <soundfont-file>`.
+
+>Ensure that you have a SoundFont file that conforms to the General MIDI standard and note its location on your computer. On Linux, we recommend the Fluid (R3) General MIDI SoundFont located at `/usr/share/sounds/sf2/FluidR3_GM.sf2`.
+
+>If JACK is unable to use real-time scheduling, run the commands `sudo dpkg-reconfigure -p high jackd` to give JACK high priority and `sudo adduser [your-username] audio` to add your user account to the "audio" group, and restart your computer.
 
