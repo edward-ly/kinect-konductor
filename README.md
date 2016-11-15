@@ -2,7 +2,7 @@
 
 A virtual orchestra conductor application using the Microsoft Kinect for Windows v1. Developed as an Earlham College senior capstone research project in collaboration with the Music and Computer Science Departments.
 
-More info to come soon.
+This application tracks your hand's position and uses nothing but its vertical velocity and acceleration to detect beats and determine volume, respectively. A MIDI-like CSV file is used to store the desired music for playback.
 
 ## Technical Overview
 
@@ -12,16 +12,17 @@ This application was developed using the following libraries. Some notable depen
 * [XKin](https://github.com/fpeder/XKin)
   * [OpenCV](http://opencv.org/)
   * [FFTW](http://fftw.org/)
-* [PortAudio](http://www.portaudio.com/)
-* [OpenGL](https://www.opengl.org/)
+* [FluidSynth](http://www.fluidsynth.org/)
 
 ## Setup
 
 ### Linux
 
->Note: Ensure that all the required libraries listed above are installed and configured for your computer. If you are configuring libfreenect with `cmake`, be sure to use the option `-DBUILD_CV=ON`. Similarly, use the option `-DWITH_OPENGL=ON` when configuring OpenCV.
+>Note 1: Ensure that all the required libraries listed above are installed and configured for your computer. If you are configuring libfreenect with `cmake`, be sure to use the option `-DBUILD_CV=ON`.
+>Note 2: Also ensure that you have a SoundFont file that conforms to the General MIDI standard and note its location on your computer. On Linux, we recommend the Fluid (R3) General MIDI SoundFont located at `/usr/share/sounds/sf2/FluidR3_GM.sf2`.
 
 1. Clone this repository and `cd` to the source directory.
 2. Create a new folder called `XKin` and clone the [XKin library repository](https://github.com/fpeder/XKin) into that folder. Follow the instructions provided to compile it.
 3. Return to the source directory and run `make`.
+4. Run the program with `./main <csv-file> <soundfont-file>`.
 

@@ -69,17 +69,11 @@
 #include <opencv2/highgui/highgui_c.h>
 #include <libfreenect/libfreenect_sync.h>
 #include <libfreenect/libfreenect_cv.h>
-#include <portaudio.h>
 
 #include "./XKin/include/libbody.h"
 #include "./XKin/include/libhand.h"
 #include "./XKin/include/libposture.h"
 #include "./XKin/include/libgesture.h"
-
-typedef struct paData {
-	float left_phase;
-	float right_phase;
-} paData;
 
 typedef struct point_t {
 	CvPoint point;
@@ -88,36 +82,27 @@ typedef struct point_t {
 
 const int SCREENX = 1200, SCREENY = 800;
 const int WIN_TYPE = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE;
-const int NUM_MILLISECONDS = 100, SAMPLE_RATE = 44100, A = 440;
+const int NUM_MILLISECONDS = 100, SAMPLE_RATE = 44100;
 const int WIDTH = 640, HEIGHT = 480, TIMER = 10;
 const int MAX_POINTS = 5, THRESHOLD = 256;
 const double MIN_DISTANCE = 12.0, MAX_DISTANCE = 224.0;
 const double MAX_ACCEL = 32768.0, BEATS_PER_MEASURE = 4.0;
 
-bool debug_stream = false;
+bool debug_stream = true;
 bool debug_time = false;
-bool debug_beat = false;
+bool debug_beat = true;
 
-double currentBeat = -5.0;
-static paData data;
+double currentBeat = -5.0; // Don't start music immediately.
 clock_t time1, time2;
 double seconds, BPM;
 int front = 0, count = 0, vel1, vel2;
 double accel;
 
-const int NUM_NOTES = 8;
-int notes[] = {60, 62, 63, 67, 68, 72, -1, -1};
-float ramp = 0;
-
 double         diffclock               (clock_t, clock_t);
 bool           is_inside_window        (CvPoint);
 double         distance                (CvPoint, CvPoint);
 double         velocity_y              (point_t, point_t);
-double         midi_to_freq            (int);
-float          freq_to_ramp            (double);
-float          midi_to_ramp            (int);
 IplImage*      draw_depth_hand         (CvSeq*, int, point_t[]);
-static int     paCallback              (const void*, void*, unsigned long, const PaStreamCallbackTimeInfo*, PaStreamCallbackFlags, void*);
 
 //////////////////////////////////////////////////////
 
@@ -132,16 +117,6 @@ int main (int argc, char *argv[]) {
 		points[n].point.y = HEIGHT/2;
 		points[n].time = time1;
 	}
-
-	PaStream *stream;
-	PaError err;
-	data.left_phase = data.right_phase = 0.0;
-
-	err = Pa_Initialize();
-	if (err != paNoError) goto error;
-
-	err = Pa_OpenDefaultStream(&stream, 0, 2, paFloat32, SAMPLE_RATE, 256, paCallback, &data);
-	if (err != paNoError) goto error;
 
 	cvNamedWindow(win_hand, WIN_TYPE);
 	cvMoveWindow(win_hand, SCREENX - WIDTH/2, HEIGHT/2);
@@ -201,20 +176,7 @@ int main (int argc, char *argv[]) {
 				time1 = time2;
 
 				currentBeat += 0.5;
-				int note = notes[rand() % NUM_NOTES];
-				if (debug_beat) fprintf(stderr, "%f, %i, %f, %f, %f\n", currentBeat, note, accel, seconds, BPM);
-
-				if (note != -1) {
-					ramp = midi_to_ramp(note);
-
-					err = Pa_StartStream(stream);
-					if (err != paNoError) goto error;
-
-					Pa_Sleep(NUM_MILLISECONDS);
-
-					err = Pa_StopStream(stream);
-					if (err != paNoError) goto error;
-				}
+				if (debug_beat) fprintf(stderr, "%f, %f, %f, %f\n", currentBeat, accel, seconds, BPM);
 
 				beatIsReady = false;
 			}
@@ -222,6 +184,8 @@ int main (int argc, char *argv[]) {
 			if (!beatIsReady && (vel1 > 0) && (vel2 < 0)
 					&& (remainder(currentBeat, 1.0) == 0.0)) {
 				currentBeat += 0.5;
+				if (debug_beat) fprintf(stderr, "%f, %f\n", currentBeat, accel);
+
 				beatIsReady = true;
 			}
 
@@ -238,18 +202,7 @@ int main (int argc, char *argv[]) {
 	freenect_sync_stop();
 	cvDestroyAllWindows();
 
-	err = Pa_CloseStream(stream);
-	if (err != paNoError) goto error;
-	Pa_Terminate();
-
-	return err;
-
-error:
-	Pa_Terminate();
-	fprintf(stderr, "An error occured while using the portaudio stream\n");
-	fprintf(stderr, "Error number: %d\n", err);
-	fprintf(stderr, "Error message: %s\n", Pa_GetErrorText(err));
-	return err;
+	return 0;
 }
 
 //////////////////////////////////////////////////////
@@ -270,50 +223,6 @@ double distance (CvPoint point1, CvPoint point2) {
 
 double velocity_y (point_t end, point_t beginning) {
 	return (end.point.y - beginning.point.y) / diffclock(end.time, beginning.time);
-}
-
-double midi_to_freq (int note) {
-	return pow(2, (note - 69) / 12.0) * A;
-}
-
-float freq_to_ramp (double freq) {
-	return freq / SAMPLE_RATE;
-}
-
-float midi_to_ramp (int note) {
-	return freq_to_ramp(midi_to_freq(note));
-}
-
-/* This routine will be called by the PortAudio engine when audio is needed.
-** It may called at interrupt level on some machines so don't do anything
-** that could mess up the system like calling malloc() or free().
-*/
-static int paCallback (const void *inputBuffer, void *outputBuffer,
-                       unsigned long framesPerBuffer,
-                       const PaStreamCallbackTimeInfo* timeInfo,
-                       PaStreamCallbackFlags statusFlags,
-                       void *userData) {
-	// Cast data passed through stream to our structure.
-	paData *data = (paData*)userData;
-	float *out = (float*)outputBuffer;
-	unsigned int i;
-	(void) inputBuffer; // Prevent unused variable warning.
-
-	float volume = (float)accel / MAX_ACCEL;
-	if (volume > 1.0) volume = 1.0;
-
-	for (i = 0; i < framesPerBuffer; i++) {
-		*out++ = data->left_phase;
-		*out++ = data->right_phase;
-		// Generate sawtooth phaser within range (-volume, +volume).
-		data->left_phase += ramp * volume;
-		// When signal reaches top, drop back down.
-		if (data->left_phase >= volume) data->left_phase -= 2.0f * volume;
-		// Higher pitch so we can distinguish left and right.
-		data->right_phase += 2.0f * ramp * volume;
-		if (data->right_phase >= volume) data->right_phase -= 2.0f * volume;
-	}
-	return 0;
 }
 
 IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t points[]) {
