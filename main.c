@@ -71,10 +71,10 @@
 #include <libfreenect/libfreenect_cv.h>
 #include <fluidsynth.h>
 
-#include "./XKin/include/libbody.h"
-#include "./XKin/include/libhand.h"
-#include "./XKin/include/libposture.h"
-#include "./XKin/include/libgesture.h"
+#include "XKin/include/libbody.h"
+#include "XKin/include/libhand.h"
+#include "XKin/include/libposture.h"
+#include "XKin/include/libgesture.h"
 
 typedef struct point_t {
 	CvPoint point;
@@ -99,9 +99,9 @@ const double MAX_ACCEL = 32768.0, BEATS_PER_MEASURE = 4.0;
 bool debug_input = false;
 bool debug_stream = false;
 bool debug_time = false;
-bool debug_beat = true;
 
 double currentBeat = -5.0; // Don't start music immediately.
+int currentNote = 0, notesRead = 0, velocity;
 clock_t time1, time2;
 double seconds, BPM;
 int front = 0, count = 0, vel1, vel2;
@@ -113,6 +113,9 @@ double         diffclock               (clock_t, clock_t);
 bool           is_inside_window        (CvPoint);
 double         distance                (CvPoint, CvPoint);
 double         velocity_y              (point_t, point_t);
+void           analyze_points          (point_t[]);
+void           calculate_BPM           (void);
+void           play_current_notes      (fluid_synth_t*, note_t[]);
 IplImage*      draw_depth_hand         (CvSeq*, int, point_t[]);
 
 //////////////////////////////////////////////////////
@@ -145,7 +148,7 @@ int main (int argc, char *argv[]) {
 		IplImage *depth, *body, *hand, *a;
 		CvSeq *cnt;
 		CvPoint cent;
-		int z, i;
+		int z;
 		
 		depth = freenect_sync_get_depth_cv(0);
 		
@@ -169,47 +172,22 @@ int main (int argc, char *argv[]) {
 				front %= MAX_POINTS;
 			}
 
-			vel2 = -1 * velocity_y(points[(front + MAX_POINTS - 1) % MAX_POINTS], points[(front + MAX_POINTS - 3) % MAX_POINTS]);
-			vel1 = -1 * velocity_y(points[(front + 2) % MAX_POINTS], points[front]);
-			accel = vel2 - vel1 / diffclock(points[(front + MAX_POINTS - 1) % MAX_POINTS].time, points[(front + 2) % MAX_POINTS].time);
-
-			if (debug_stream) {
-				for (i = 0; i < MAX_POINTS; i++)
-					fprintf(stderr, "(%i, %i), ", points[(front + i) % MAX_POINTS].point.x, points[(front + i) % MAX_POINTS].point.y);
-				fprintf(stderr, "%i, %i, %f\n", vel1, vel2, accel);
-			}
-
-			if (debug_time) {
-				for (i = 1; i < MAX_POINTS; i++)
-					fprintf(stderr, "%f, ", diffclock(points[(front + i) % MAX_POINTS].time, points[(front + i - 1) % MAX_POINTS].time));
-				fprintf(stderr, "\n");
-			}
+			analyze_points(points); // Get velocity and acceleration.
 
 			if (beatIsReady
 					&& (distance(points[(front + MAX_POINTS - 1) % MAX_POINTS].point, points[front].point) > MIN_DISTANCE)
-					&& (vel1 < 0)
-					&& (vel2 > THRESHOLD)
+					&& (vel1 < 0) && (vel2 > THRESHOLD)
 					&& (remainder(currentBeat, 1.0) != 0.0)) {
-				time2 = clock();
-				seconds = diffclock(time2, time1);
-				BPM = 60.0 / seconds;
-				time1 = time2;
-
+				calculate_BPM();
 				currentBeat += 0.5;
-				if (debug_beat) fprintf(stderr, "%f, %f, %f, %f\n", currentBeat, accel, seconds, BPM);
-
-				fluid_synth_noteon(synth, 0, 60, 100);
-
+				play_current_notes(synth, notes);
 				beatIsReady = false;
 			}
 
 			if (!beatIsReady && (vel1 > 0) && (vel2 < 0)
 					&& (remainder(currentBeat, 1.0) == 0.0)) {
 				currentBeat += 0.5;
-				if (debug_beat) fprintf(stderr, "%f, %f\n", currentBeat, accel);
-
-				fluid_synth_noteoff(synth, 0, 60);
-
+				play_current_notes(synth, notes);
 				beatIsReady = true;
 			}
 
@@ -252,10 +230,10 @@ void parse_notes (int argc, char *argv[], note_t notes[]) {
 	while (fscanf(file, "%lf, %i, %i, %i", &notes[n].beat, &notes[n].channel, &notes[n].key, &notes[n].noteOn) != EOF) {
 		if (debug_input) fprintf(stderr, "%f, %i, %i, %i\n", notes[n].beat, notes[n].channel, notes[n].key, notes[n].noteOn);
 		if (++n >= MAX_NOTES) {
-			fprintf(stderr, "%s: Maximum number of notes reached, music will end after beat %1lf\n", argv[0], notes[MAX_NOTES - 1].beat);
+			fprintf(stderr, "Warning: maximum number of notes reached, music will end after beat %1lf\n", notes[MAX_NOTES - 1].beat);
 		}
 	}
-
+	notesRead = n;
 	fclose(file);
 }
 
@@ -304,6 +282,46 @@ double distance (CvPoint point1, CvPoint point2) {
 
 double velocity_y (point_t end, point_t beginning) {
 	return (end.point.y - beginning.point.y) / diffclock(end.time, beginning.time);
+}
+
+void analyze_points (point_t points[]) {
+	vel2 = -1 * velocity_y(points[(front + MAX_POINTS - 1) % MAX_POINTS], points[(front + MAX_POINTS - 3) % MAX_POINTS]);
+	vel1 = -1 * velocity_y(points[(front + 2) % MAX_POINTS], points[front]);
+	accel = abs(vel2 - vel1) / diffclock(points[(front + MAX_POINTS - 1) % MAX_POINTS].time, points[(front + 2) % MAX_POINTS].time);
+
+	int i;
+	if (debug_stream) {
+		for (i = 0; i < MAX_POINTS; i++)
+			fprintf(stderr, "(%i, %i), ", points[(front + i) % MAX_POINTS].point.x, points[(front + i) % MAX_POINTS].point.y);
+		fprintf(stderr, "%i, %i, %f\n", vel1, vel2, accel);
+	}
+
+	if (debug_time) {
+		for (i = 1; i < MAX_POINTS; i++)
+			fprintf(stderr, "%f, ", diffclock(points[(front + i) % MAX_POINTS].time, points[(front + i - 1) % MAX_POINTS].time));
+		fprintf(stderr, "\n");
+	}
+}
+
+void calculate_BPM (void) {
+	time2 = clock();
+	seconds = diffclock(time2, time1);
+	BPM = 60.0 / seconds;
+	time1 = time2;
+}
+
+void play_current_notes (fluid_synth_t* synth, note_t notes[]) {
+	velocity = (int)(accel * 127.0 / MAX_ACCEL);
+	if (velocity > 127) velocity = 127;
+
+	while ((currentNote < notesRead)
+			&& (notes[currentNote].beat <= currentBeat)) {
+		if (notes[currentNote].noteOn)
+			fluid_synth_noteon(synth, notes[currentNote].channel, notes[currentNote].key, velocity);
+		else fluid_synth_noteoff(synth, notes[currentNote].channel, notes[currentNote].key);
+		fprintf(stderr, "%1lf, %i, %i\n", notes[currentNote].beat, notes[currentNote].channel, notes[currentNote].key);
+		currentNote++;
+	}
 }
 
 IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t points[]) {
