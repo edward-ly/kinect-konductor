@@ -92,10 +92,11 @@ const int SCREENX = 1200, SCREENY = 800;
 const int WIN_TYPE = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE;
 const int NUM_MILLISECONDS = 100, SAMPLE_RATE = 44100;
 const int WIDTH = 640, HEIGHT = 480, TIMER = 10;
-const int MAX_POINTS = 5, THRESHOLD = 256;
+const int MAX_POINTS = 5, MAX_NOTES = 1024, THRESHOLD = 256;
 const double MIN_DISTANCE = 12.0, MAX_DISTANCE = 224.0;
 const double MAX_ACCEL = 32768.0, BEATS_PER_MEASURE = 4.0;
 
+bool debug_input = false;
 bool debug_stream = false;
 bool debug_time = false;
 bool debug_beat = true;
@@ -106,6 +107,8 @@ double seconds, BPM;
 int front = 0, count = 0, vel1, vel2;
 double accel;
 
+void           parse_notes             (int, char*[], note_t[]);
+void           fluid_init              (fluid_settings_t**, fluid_synth_t**, fluid_audio_driver_t**, int*, char*);
 double         diffclock               (clock_t, clock_t);
 bool           is_inside_window        (CvPoint);
 double         distance                (CvPoint, CvPoint);
@@ -115,49 +118,14 @@ IplImage*      draw_depth_hand         (CvSeq*, int, point_t[]);
 //////////////////////////////////////////////////////
 
 int main (int argc, char *argv[]) {
-	if (argc < 3) {
-		fprintf(stderr, "Usage: %s [music] [soundfont]\n", argv[0]);
-		return -1;
-	}
-
-	FILE* musicFile;
-	musicFile = fopen(argv[1], "r");
-	if (musicFile == NULL) {
-		fprintf(stderr, "%s: Unable to open file %s\n", argv[0], argv[1]);
-		return -2;
-	}
+	note_t notes[MAX_NOTES];
+	parse_notes(argc, argv, notes);
 
 	fluid_settings_t* settings;
 	fluid_synth_t* synth;
 	fluid_audio_driver_t* adriver;
 	int sfont_id;
-
-	settings = new_fluid_settings();
-	if (settings == NULL) {
-		fprintf(stderr, "FluidSynth: failed to create the settings\n");
-		return 1;
-	}
-	synth = new_fluid_synth(settings);
-	if (synth == NULL) {
-		fprintf(stderr, "FluidSynth: failed to create the synthesizer\n");
-		delete_fluid_settings(settings);
-		return 2;
-	}
-	adriver = new_fluid_audio_driver(settings, synth);
-	if (adriver == NULL) {
-		fprintf(stderr, "FluidSynth: failed to create the audio driver\n");
-		delete_fluid_synth(synth);
-		delete_fluid_settings(settings);
-		return 3;
-	}
-	sfont_id = fluid_synth_sfload(synth, argv[2], 1);
-	if (sfont_id == FLUID_FAILED) {
-		fprintf(stderr, "FluidSynth: unable to open soundfont %s\n", argv[2]);
-		delete_fluid_audio_driver(adriver);
-		delete_fluid_synth(synth);
-		delete_fluid_settings(settings);
-		return 4;
-	}
+	fluid_init(&settings, &synth, &adriver, &sfont_id, argv[2]);
 
 	const char *win_hand = "depth hand";
 	point_t points[MAX_POINTS];
@@ -262,11 +230,63 @@ int main (int argc, char *argv[]) {
 	delete_fluid_synth(synth);
 	delete_fluid_settings(settings);
 
-	fclose(musicFile);
-    return 0;
+	return 0;
 }
 
 //////////////////////////////////////////////////////
+
+void parse_notes (int argc, char *argv[], note_t notes[]) {
+	if (argc < 3) {
+		fprintf(stderr, "Usage: %s [music] [soundfont]\n", argv[0]);
+		exit(-1);
+	}
+
+	FILE* file;
+	file = fopen(argv[1], "r");
+	if (file == NULL) {
+		fprintf(stderr, "Error: unable to open file %s\n", argv[1]);
+		exit(-2);
+	}
+
+	int n = 0;
+	while (fscanf(file, "%lf, %i, %i, %i", &notes[n].beat, &notes[n].channel, &notes[n].key, &notes[n].noteOn) != EOF) {
+		if (debug_input) fprintf(stderr, "%f, %i, %i, %i\n", notes[n].beat, notes[n].channel, notes[n].key, notes[n].noteOn);
+		if (++n >= MAX_NOTES) {
+			fprintf(stderr, "%s: Maximum number of notes reached, music will end after beat %1lf\n", argv[0], notes[MAX_NOTES - 1].beat);
+		}
+	}
+
+	fclose(file);
+}
+
+void fluid_init (fluid_settings_t** settings, fluid_synth_t** synth, fluid_audio_driver_t** adriver, int* sfont_id, char* soundfont) {
+	*settings = new_fluid_settings();
+	if (*settings == NULL) {
+		fprintf(stderr, "FluidSynth: failed to create the settings\n");
+		exit(1);
+	}
+	*synth = new_fluid_synth(*settings);
+	if (*synth == NULL) {
+		fprintf(stderr, "FluidSynth: failed to create the synthesizer\n");
+		delete_fluid_settings(*settings);
+		exit(2);
+	}
+	*adriver = new_fluid_audio_driver(*settings, *synth);
+	if (*adriver == NULL) {
+		fprintf(stderr, "FluidSynth: failed to create the audio driver\n");
+		delete_fluid_synth(*synth);
+		delete_fluid_settings(*settings);
+		exit(3);
+	}
+	*sfont_id = fluid_synth_sfload(*synth, soundfont, 1);
+	if (*sfont_id == FLUID_FAILED) {
+		fprintf(stderr, "FluidSynth: unable to open soundfont %s\n", soundfont);
+		delete_fluid_audio_driver(*adriver);
+		delete_fluid_synth(*synth);
+		delete_fluid_settings(*settings);
+		exit(4);
+	}
+}
 
 double diffclock (clock_t end, clock_t beginning) {
 	return (end - beginning) / (double)CLOCKS_PER_SEC;
