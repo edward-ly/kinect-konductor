@@ -1,6 +1,6 @@
 // File: main.c
 // Author: Edward Ly
-// Last Modified: 7 November 2016
+// Last Modified: 15 November 2016
 // Description: A simple virtual conductor application for Kinect for Windows v1.
 
 // Contains modified source code from the example files demogesture.c (XKin) and paex_saw.c (PortAudio) with the below licenses.
@@ -57,36 +57,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <math.h>
-#include <time.h>
-#include <unistd.h>
-#include <pthread.h>
-#include <string.h>
-#include <opencv2/core/core_c.h>
-#include <opencv2/highgui/highgui_c.h>
-#include <libfreenect/libfreenect_sync.h>
-#include <libfreenect/libfreenect_cv.h>
-#include <fluidsynth.h>
-
-#include "XKin/include/libbody.h"
-#include "XKin/include/libhand.h"
-#include "XKin/include/libposture.h"
-#include "XKin/include/libgesture.h"
-
-typedef struct point_t {
-	CvPoint point;
-	clock_t time;
-} point_t;
-
-typedef struct note_t {
-	double beat;
-	int channel;
-	int key;
-	int noteOn;
-} note_t;
+#include "include.h"
 
 const int SCREENX = 1200, SCREENY = 800;
 const int WIN_TYPE = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE;
@@ -130,7 +101,7 @@ int main (int argc, char *argv[]) {
 	int sfont_id;
 	fluid_init(&settings, &synth, &adriver, &sfont_id, argv[2]);
 
-	const char *win_hand = "depth hand";
+	const char *win_hand = "Simple Virtual Conductor";
 	point_t points[MAX_POINTS];
 	bool beatIsReady = false;
 	time1 = clock(); int n;
@@ -319,7 +290,6 @@ void play_current_notes (fluid_synth_t* synth, note_t notes[]) {
 		if (notes[currentNote].noteOn)
 			fluid_synth_noteon(synth, notes[currentNote].channel, notes[currentNote].key, velocity);
 		else fluid_synth_noteoff(synth, notes[currentNote].channel, notes[currentNote].key);
-		fprintf(stderr, "%1lf, %i, %i\n", notes[currentNote].beat, notes[currentNote].channel, notes[currentNote].key);
 		currentNote++;
 	}
 }

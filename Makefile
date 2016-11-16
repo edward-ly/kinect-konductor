@@ -12,7 +12,7 @@ LIBS = `pkg-config --libs opencv` -lfreenect -lfreenect_sync -lfreenect_cv -lbod
 # Other libraries already included from pkg-config command:
 # -lm -lpthread
 
-main: main.c
+main: main.c include.h
 	gcc ${CFLAGS} ${LIB_PATHS} $< -o $@ ${LIBS}
 
 clean:
