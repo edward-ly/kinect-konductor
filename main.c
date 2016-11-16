@@ -1,6 +1,6 @@
 // File: main.c
 // Author: Edward Ly
-// Last Modified: 15 November 2016
+// Last Modified: 16 November 2016
 // Description: A simple virtual conductor application for Kinect for Windows v1.
 
 // Contains modified source code from the example files demogesture.c (XKin) and paex_saw.c (PortAudio) with the below licenses.
@@ -62,8 +62,8 @@
 const int SCREENX = 1200, SCREENY = 800;
 const int WIN_TYPE = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE;
 const int NUM_MILLISECONDS = 100, SAMPLE_RATE = 44100;
-const int WIDTH = 640, HEIGHT = 480, TIMER = 10;
-const int MAX_POINTS = 5, MAX_NOTES = 1024, THRESHOLD = 256;
+const int WIDTH = 640, HEIGHT = 480, TIMER = 16;
+const int MAX_POINTS = 5, MAX_NOTES = 2048, THRESHOLD = 256;
 const double MIN_DISTANCE = 12.0, MAX_DISTANCE = 224.0;
 const double MAX_ACCEL = 32768.0, BEATS_PER_MEASURE = 4.0;
 
@@ -75,25 +75,29 @@ double currentBeat = -5.0; // Don't start music immediately.
 int currentNote = 0, notesRead = 0, velocity;
 clock_t time1, time2;
 double seconds, BPM;
-int front = 0, count = 0, vel1, vel2;
-double accel;
+double vel1, vel2, accel;
 
-void           parse_notes             (int, char*[], note_t[]);
-void           fluid_init              (fluid_settings_t**, fluid_synth_t**, fluid_audio_driver_t**, int*, char*);
-double         diffclock               (clock_t, clock_t);
-bool           is_inside_window        (CvPoint);
-double         distance                (CvPoint, CvPoint);
-double         velocity_y              (point_t, point_t);
-void           analyze_points          (point_t[]);
-void           calculate_BPM           (void);
-void           play_current_notes      (fluid_synth_t*, note_t[]);
-IplImage*      draw_depth_hand         (CvSeq*, int, point_t[]);
+void        parse_notes          (char*, note_t[]);
+void        fluid_init           (fluid_settings_t**, fluid_synth_t**, fluid_audio_driver_t**, int*, char*);
+double      diffclock            (clock_t, clock_t);
+bool        is_inside_window     (CvPoint);
+double      distance             (CvPoint, CvPoint);
+double      velocity_y           (point_t, point_t);
+void        analyze_points       (point_t[], int);
+void        calculate_BPM        (clock_t);
+void        play_current_notes   (fluid_synth_t*, note_t[]);
+IplImage*   draw_depth_hand      (CvSeq*, int, point_t[], int, int);
 
 //////////////////////////////////////////////////////
 
 int main (int argc, char *argv[]) {
+	if (argc < 3) {
+		fprintf(stderr, "Usage: %s [music] [soundfont]\n", argv[0]);
+		exit(-1);
+	}
+
 	note_t notes[MAX_NOTES];
-	parse_notes(argc, argv, notes);
+	parse_notes(argv[1], notes);
 
 	fluid_settings_t* settings;
 	fluid_synth_t* synth;
@@ -103,6 +107,7 @@ int main (int argc, char *argv[]) {
 
 	const char *win_hand = "Simple Virtual Conductor";
 	point_t points[MAX_POINTS];
+	int front = 0, count = 0;
 	bool beatIsReady = false;
 	time1 = clock(); int n;
 
@@ -143,13 +148,14 @@ int main (int argc, char *argv[]) {
 				front %= MAX_POINTS;
 			}
 
-			analyze_points(points); // Get velocity and acceleration.
+			// Get velocity and acceleration.
+			analyze_points(points, front);
 
 			if (beatIsReady
-					&& (distance(points[(front + MAX_POINTS - 1) % MAX_POINTS].point, points[front].point) > MIN_DISTANCE)
+					&& (distance(points[(front + count - 1) % MAX_POINTS].point, points[front].point) > MIN_DISTANCE)
 					&& (vel1 < 0) && (vel2 > THRESHOLD)
 					&& (remainder(currentBeat, 1.0) != 0.0)) {
-				calculate_BPM();
+				calculate_BPM(points[(front + count - 1) % MAX_POINTS].time);
 				currentBeat += 0.5;
 				play_current_notes(synth, notes);
 				beatIsReady = false;
@@ -162,14 +168,13 @@ int main (int argc, char *argv[]) {
 				beatIsReady = true;
 			}
 
-			a = draw_depth_hand(cnt, (int)beatIsReady, points);
+			a = draw_depth_hand(cnt, (int)beatIsReady, points, front, count);
 			cvShowImage(win_hand, a);
 			cvResizeWindow(win_hand, WIDTH/2, HEIGHT/2);
 		}
 
 		// Press any key to quit.
-		if (cvWaitKey(TIMER) != -1)
-			break;
+		if (cvWaitKey(TIMER) != -1) break;
 	}
 
 	freenect_sync_stop();
@@ -184,24 +189,21 @@ int main (int argc, char *argv[]) {
 
 //////////////////////////////////////////////////////
 
-void parse_notes (int argc, char *argv[], note_t notes[]) {
-	if (argc < 3) {
-		fprintf(stderr, "Usage: %s [music] [soundfont]\n", argv[0]);
-		exit(-1);
-	}
-
+void parse_notes (char* filename, note_t notes[]) {
 	FILE* file;
-	file = fopen(argv[1], "r");
+	file = fopen(filename, "r");
 	if (file == NULL) {
-		fprintf(stderr, "Error: unable to open file %s\n", argv[1]);
+		fprintf(stderr, "Error: unable to open file %s\n", filename);
 		exit(-2);
 	}
 
 	int n = 0;
 	while (fscanf(file, "%lf, %i, %i, %i", &notes[n].beat, &notes[n].channel, &notes[n].key, &notes[n].noteOn) != EOF) {
-		if (debug_input) fprintf(stderr, "%f, %i, %i, %i\n", notes[n].beat, notes[n].channel, notes[n].key, notes[n].noteOn);
+		if (debug_input)
+			fprintf(stderr, "%1lf, %i, %i, %i\n", notes[n].beat, notes[n].channel, notes[n].key, notes[n].noteOn);
 		if (++n >= MAX_NOTES) {
 			fprintf(stderr, "Warning: maximum number of notes reached, music will end after beat %1lf\n", notes[MAX_NOTES - 1].beat);
+			break;
 		}
 	}
 	notesRead = n;
@@ -245,9 +247,9 @@ bool is_inside_window (CvPoint p) {
 	return (p.x >= 0) && (p.y >= 0) && (p.x < WIDTH) && (p.y < HEIGHT);
 }
 
-double distance (CvPoint point1, CvPoint point2) {
-	int x = point2.x - point1.x;
-	int y = point2.y - point1.y;
+double distance (CvPoint p1, CvPoint p2) {
+	int x = p2.x - p1.x;
+	int y = p2.y - p1.y;
 	return sqrt((double)((x * x) + (y * y)));
 }
 
@@ -255,27 +257,28 @@ double velocity_y (point_t end, point_t beginning) {
 	return (end.point.y - beginning.point.y) / diffclock(end.time, beginning.time);
 }
 
-void analyze_points (point_t points[]) {
+void analyze_points (point_t points[], int front) {
 	vel2 = -1 * velocity_y(points[(front + MAX_POINTS - 1) % MAX_POINTS], points[(front + MAX_POINTS - 3) % MAX_POINTS]);
 	vel1 = -1 * velocity_y(points[(front + 2) % MAX_POINTS], points[front]);
 	accel = abs(vel2 - vel1) / diffclock(points[(front + MAX_POINTS - 1) % MAX_POINTS].time, points[(front + 2) % MAX_POINTS].time);
 
-	int i;
 	if (debug_stream) {
+		int i;
 		for (i = 0; i < MAX_POINTS; i++)
 			fprintf(stderr, "(%i, %i), ", points[(front + i) % MAX_POINTS].point.x, points[(front + i) % MAX_POINTS].point.y);
-		fprintf(stderr, "%i, %i, %f\n", vel1, vel2, accel);
+		fprintf(stderr, "%lf, %lf, %lf\n", vel1, vel2, accel);
 	}
 
 	if (debug_time) {
+		int i;
 		for (i = 1; i < MAX_POINTS; i++)
-			fprintf(stderr, "%f, ", diffclock(points[(front + i) % MAX_POINTS].time, points[(front + i - 1) % MAX_POINTS].time));
+			fprintf(stderr, "%lf, ", diffclock(points[(front + i) % MAX_POINTS].time, points[(front + i - 1) % MAX_POINTS].time));
 		fprintf(stderr, "\n");
 	}
 }
 
-void calculate_BPM (void) {
-	time2 = clock();
+void calculate_BPM (clock_t end) {
+	time2 = end;
 	seconds = diffclock(time2, time1);
 	BPM = 60.0 / seconds;
 	time1 = time2;
@@ -292,17 +295,23 @@ void play_current_notes (fluid_synth_t* synth, note_t notes[]) {
 		else fluid_synth_noteoff(synth, notes[currentNote].channel, notes[currentNote].key);
 		currentNote++;
 	}
+
+	if (currentNote >= notesRead) {
+		// Reset music.
+		currentNote = 0;
+		currentBeat = -5.0;
+	}
 }
 
-IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t points[]) {
+IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t points[], int front, int count) {
 	static IplImage *img = NULL;
-	CvScalar color[] = {CV_RGB(255,0,0), CV_RGB(0,255,0)};
+	CvScalar color[] = {CV_RGB(255, 0, 0), CV_RGB(0, 255, 0)};
 
 	if (img == NULL)
 		img = cvCreateImage(cvSize(WIDTH, HEIGHT), 8, 3);
 
 	cvZero(img);
-	// cvDrawContours(img, cnt, color[type], CV_RGB(0,0,255), 0, CV_FILLED, 8, cvPoint(0,0));
+	// cvDrawContours(img, cnt, color[type], CV_RGB(0, 0, 255), 0, CV_FILLED, 8, cvPoint(0, 0));
 
 	int i;
 	for (i = 1; i < count; i++)
