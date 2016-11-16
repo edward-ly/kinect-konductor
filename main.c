@@ -2,6 +2,7 @@
 // Author: Edward Ly
 // Last Modified: 16 November 2016
 // Description: A simple virtual conductor application for Kinect for Windows v1.
+// See the LICENSE file for license information.
 
 #include "include.h"
 
@@ -36,7 +37,7 @@ IplImage*   draw_depth_hand      (CvSeq*, int, point_t[], int, int);
 
 //////////////////////////////////////////////////////
 
-int main (int argc, char *argv[]) {
+int main (int argc, char* argv[]) {
 	if (argc < 3) {
 		fprintf(stderr, "Usage: %s [music] [soundfont]\n", argv[0]);
 		exit(-1);
@@ -51,12 +52,13 @@ int main (int argc, char *argv[]) {
 	int sfont_id;
 	fluid_init(&settings, &synth, &adriver, &sfont_id, argv[2]);
 
-	const char *win_hand = "Simple Virtual Conductor";
+	const char* win_hand = "Kinect Konductor";
 	point_t points[MAX_POINTS];
 	int front = 0, count = 0;
 	bool beatIsReady = false;
 	time1 = clock(); int n;
 
+	// Initialize queue to prevent erratic points.
 	for (n = 0; n < MAX_POINTS; n++) {
 		points[n].point.x = WIDTH/2;
 		points[n].point.y = HEIGHT/2;
@@ -73,7 +75,6 @@ int main (int argc, char *argv[]) {
 		int z;
 		
 		depth = freenect_sync_get_depth_cv(0);
-		
 		body = body_detection(depth);
 		hand = hand_detection(body, &z);
 
@@ -84,6 +85,7 @@ int main (int argc, char *argv[]) {
 			continue;
 
 		if ((count == 0) || distance(cent, points[(front + count) % MAX_POINTS].point) < MAX_DISTANCE) {
+			// Add point to queue.
 			if (count < MAX_POINTS) {
 				points[(front + count) % MAX_POINTS].time = clock();
 				points[(front + count++) % MAX_POINTS].point = cent;
@@ -253,8 +255,7 @@ IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t points[], int front, in
 	static IplImage *img = NULL;
 	CvScalar color[] = {CV_RGB(255, 0, 0), CV_RGB(0, 255, 0)};
 
-	if (img == NULL)
-		img = cvCreateImage(cvSize(WIDTH, HEIGHT), 8, 3);
+	if (img == NULL) img = cvCreateImage(cvSize(WIDTH, HEIGHT), 8, 3);
 
 	cvZero(img);
 	// cvDrawContours(img, cnt, color[type], CV_RGB(0, 0, 255), 0, CV_FILLED, 8, cvPoint(0, 0));
