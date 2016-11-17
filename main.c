@@ -22,7 +22,7 @@ double currentBeat = -5.0; // Don't start music immediately.
 int currentNote = 0, notesRead = 0, velocity;
 clock_t time1, time2;
 double seconds, BPM;
-double vel1, vel2, accel;
+double vel1, vel2, accel, beat_accel = 0;
 
 void        parse_notes          (char*, note_t[]);
 void        fluid_init           (fluid_settings_t**, fluid_synth_t**, fluid_audio_driver_t**, int*, char*);
@@ -96,7 +96,7 @@ int main (int argc, char* argv[]) {
 				front %= MAX_POINTS;
 			}
 
-			// Get velocity and acceleration.
+			// Update velocity and acceleration.
 			analyze_points(points, front);
 
 			if (beatIsReady
@@ -104,6 +104,7 @@ int main (int argc, char* argv[]) {
 					&& (vel1 < 0) && (vel2 > THRESHOLD)
 					&& (remainder(currentBeat, 1.0) != 0.0)) {
 				calculate_BPM(points[(front + count - 1) % MAX_POINTS].time);
+				beat_accel = accel;
 				currentBeat += 0.5;
 				play_current_notes(synth, notes);
 				beatIsReady = false;
@@ -233,7 +234,7 @@ void calculate_BPM (clock_t end) {
 }
 
 void play_current_notes (fluid_synth_t* synth, note_t notes[]) {
-	velocity = (int)(accel * 127.0 / MAX_ACCEL);
+	velocity = (int)(beat_accel * 127.0 / MAX_ACCEL);
 	if (velocity > 127) velocity = 127;
 
 	while ((currentNote < notesRead)
