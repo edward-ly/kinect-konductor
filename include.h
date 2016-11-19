@@ -28,7 +28,7 @@ typedef struct point_t {
 } point_t;
 
 typedef struct note_t {
-	double beat;
+	int beat;
 	int channel;
 	int key;
 	int noteOn;

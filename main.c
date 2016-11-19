@@ -1,6 +1,6 @@
 // File: main.c
 // Author: Edward Ly
-// Last Modified: 16 November 2016
+// Last Modified: 18 November 2016
 // Description: A simple virtual conductor application for Kinect for Windows v1.
 // See the LICENSE file for license information.
 
@@ -8,17 +8,18 @@
 
 const int SCREENX = 1200, SCREENY = 800;
 const int WIN_TYPE = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE;
-const int WIDTH = 640, HEIGHT = 480, TIMER = 16;
-const int MAX_CHANNELS = 16;
+const int WIDTH = 640, HEIGHT = 480, TIMER = 1;
+const int MAX_CHANNELS = 16, BEAT_COUNT = 4;
 const int MAX_POINTS = 5, THRESHOLD = 256;
 const double MIN_DISTANCE = 12.0, MAX_DISTANCE = 224.0;
-const double MAX_ACCEL = 32768.0, BEATS_PER_MEASURE = 4.0;
+const double MAX_ACCEL = 32768.0;
 
 bool debug_input = false;
 bool debug_stream = false;
 bool debug_time = false;
+bool debug_clocks = true;
 
-double currentBeat = -5.0; // Don't start music immediately.
+int currentBeat = -5; // Don't start music immediately.
 int currentNote = 0, programCount, noteCount, velocity;
 clock_t time1, time2;
 double seconds, BPM;
@@ -84,16 +85,16 @@ int main (int argc, char* argv[]) {
 		}
 	}
 
-	// Initialize array of note messages and get messages.
+	// Now initialize array of note messages and get messages.
 	note_t notes[noteCount];
 	for (i = 0; i < noteCount; i++) {
-		if (fscanf(file, "%lf %i %i %i", &notes[i].beat, &notes[i].channel, &notes[i].key, &notes[i].noteOn) == EOF) {
+		if (fscanf(file, "%i %i %i %i", &notes[i].beat, &notes[i].channel, &notes[i].key, &notes[i].noteOn) == EOF) {
 			fclose(file);
 			fprintf(stderr, "Error: invalid note message %i of %i read from file %s\n", i + 1, noteCount, filename);
 			exit(-6);
 		}
 		else if (debug_input)
-			fprintf(stderr, "%1lf, %i, %i, %i\n", notes[i].beat, notes[i].channel, notes[i].key, notes[i].noteOn);
+			fprintf(stderr, "%i, %i, %i, %i\n", notes[i].beat, notes[i].channel, notes[i].key, notes[i].noteOn);
 	}
 
 	fclose(file);
@@ -106,16 +107,20 @@ int main (int argc, char* argv[]) {
 
 	const char* win_hand = "Kinect Konductor";
 	point_t points[MAX_POINTS];
-	int front = 0, count = 0;
+	int pointsFront = 0, pointsCount = 0;
+	int clocks[BEAT_COUNT];
+	int clocksFront = 0, clocksCount = 0;
 	bool beatIsReady = false;
 	time1 = clock();
 
-	// Initialize queue to prevent erratic points.
+	// Initialize queues to prevent erratic points.
 	for (i = 0; i < MAX_POINTS; i++) {
 		points[i].point.x = WIDTH/2;
 		points[i].point.y = HEIGHT/2;
 		points[i].time = time1;
 	}
+	for (i = 0; i < BEAT_COUNT; i++)
+		clocks[i] = time1;
 
 	cvNamedWindow(win_hand, WIN_TYPE);
 	cvMoveWindow(win_hand, SCREENX - WIDTH/2, HEIGHT/2);
@@ -136,40 +141,50 @@ int main (int argc, char* argv[]) {
 		if (!is_inside_window(cent))
 			continue;
 
-		if ((count == 0) || distance(cent, points[(front + count) % MAX_POINTS].point) < MAX_DISTANCE) {
+		if ((pointsCount == 0) || distance(cent, points[(pointsFront + pointsCount) % MAX_POINTS].point) < MAX_DISTANCE) {
 			// Add point to queue.
-			if (count < MAX_POINTS) {
-				points[(front + count) % MAX_POINTS].time = clock();
-				points[(front + count++) % MAX_POINTS].point = cent;
+			if (pointsCount < MAX_POINTS) {
+				points[(pointsFront + pointsCount) % MAX_POINTS].time = clock();
+				points[(pointsFront + pointsCount++) % MAX_POINTS].point = cent;
 			}
 			else {
-				points[front].time = clock();
-				points[front++].point = cent;
-				front %= MAX_POINTS;
+				points[pointsFront].time = clock();
+				points[pointsFront++].point = cent;
+				pointsFront %= MAX_POINTS;
 			}
 
 			// Update velocity and acceleration.
-			analyze_points(points, front);
+			analyze_points(points, pointsFront);
 
 			if (beatIsReady
-					&& (distance(points[(front + count - 1) % MAX_POINTS].point, points[front].point) > MIN_DISTANCE)
-					&& (vel1 < 0) && (vel2 > THRESHOLD)
-					&& (remainder(currentBeat, 1.0) != 0.0)) {
-				calculate_BPM(points[(front + count - 1) % MAX_POINTS].time);
+					&& (distance(points[(pointsFront + pointsCount - 1) % MAX_POINTS].point, points[pointsFront].point) > MIN_DISTANCE)
+					&& (vel1 < 0) && (vel2 > THRESHOLD)) {
+				// Add elapsed clock ticks to queue.
+				time2 = points[(pointsFront + pointsCount - 1) % MAX_POINTS].time;
+				if (clocksCount < BEAT_COUNT)
+					clocks[(clocksFront + clocksCount++) % BEAT_COUNT] = (int)(time2 - time1);
+				else {
+					clocks[clocksFront++] = (int)(time2 - time1);
+					clocksFront %= BEAT_COUNT;
+				}
+				time1 = time2;
+
+				if (debug_clocks) {
+					for (i = 0; i < BEAT_COUNT; i++)
+						fprintf(stderr, "%i, ", (int)clocks[(clocksFront + i) % BEAT_COUNT]);
+					fprintf(stderr, "\n");
+				}
+
 				beat_accel = accel;
-				currentBeat += 0.5;
+				currentBeat++;
 				play_current_notes(synth, notes);
 				beatIsReady = false;
 			}
 
-			if (!beatIsReady && (vel1 > 0) && (vel2 < 0)
-					&& (remainder(currentBeat, 1.0) == 0.0)) {
-				currentBeat += 0.5;
-				play_current_notes(synth, notes);
+			if (!beatIsReady && (vel1 > 0) && (vel2 < 0))
 				beatIsReady = true;
-			}
 
-			a = draw_depth_hand(cnt, (int)beatIsReady, points, front, count);
+			a = draw_depth_hand(cnt, (int)beatIsReady, points, pointsFront, pointsCount);
 			cvShowImage(win_hand, a);
 			cvResizeWindow(win_hand, WIDTH/2, HEIGHT/2);
 		}
@@ -256,22 +271,22 @@ double velocity_y (point_t end, point_t beginning) {
 	return (end.point.y - beginning.point.y) / diffclock(end.time, beginning.time);
 }
 
-void analyze_points (point_t points[], int front) {
-	vel2 = -1 * velocity_y(points[(front + MAX_POINTS - 1) % MAX_POINTS], points[(front + MAX_POINTS - 3) % MAX_POINTS]);
-	vel1 = -1 * velocity_y(points[(front + 2) % MAX_POINTS], points[front]);
-	accel = abs(vel2 - vel1) / diffclock(points[(front + MAX_POINTS - 1) % MAX_POINTS].time, points[(front + 2) % MAX_POINTS].time);
+void analyze_points (point_t points[], int pointsFront) {
+	vel2 = -1 * velocity_y(points[(pointsFront + MAX_POINTS - 1) % MAX_POINTS], points[(pointsFront + MAX_POINTS - 3) % MAX_POINTS]);
+	vel1 = -1 * velocity_y(points[(pointsFront + 2) % MAX_POINTS], points[pointsFront]);
+	accel = abs(vel2 - vel1) / diffclock(points[(pointsFront + MAX_POINTS - 1) % MAX_POINTS].time, points[(pointsFront + 2) % MAX_POINTS].time);
 
 	if (debug_stream) {
 		int i;
 		for (i = 0; i < MAX_POINTS; i++)
-			fprintf(stderr, "(%i, %i), ", points[(front + i) % MAX_POINTS].point.x, points[(front + i) % MAX_POINTS].point.y);
+			fprintf(stderr, "(%i, %i), ", points[(pointsFront + i) % MAX_POINTS].point.x, points[(pointsFront + i) % MAX_POINTS].point.y);
 		fprintf(stderr, "%lf, %lf, %lf\n", vel1, vel2, accel);
 	}
 
 	if (debug_time) {
 		int i;
 		for (i = 1; i < MAX_POINTS; i++)
-			fprintf(stderr, "%lf, ", diffclock(points[(front + i) % MAX_POINTS].time, points[(front + i - 1) % MAX_POINTS].time));
+			fprintf(stderr, "%lf, ", diffclock(points[(pointsFront + i) % MAX_POINTS].time, points[(pointsFront + i - 1) % MAX_POINTS].time));
 		fprintf(stderr, "\n");
 	}
 }
@@ -280,6 +295,7 @@ void calculate_BPM (clock_t end) {
 	time2 = end;
 	seconds = diffclock(time2, time1);
 	BPM = 60.0 / seconds;
+	fprintf(stderr, "%f, %f\n", seconds, BPM);
 	time1 = time2;
 }
 
@@ -298,11 +314,11 @@ void play_current_notes (fluid_synth_t* synth, note_t notes[]) {
 	if (currentNote >= noteCount) {
 		// Reset music.
 		currentNote = 0;
-		currentBeat = -5.0;
+		currentBeat = -5;
 	}
 }
 
-IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t points[], int front, int count) {
+IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t points[], int pointsFront, int pointsCount) {
 	static IplImage *img = NULL;
 	CvScalar color[] = {CV_RGB(255, 0, 0), CV_RGB(0, 255, 0)};
 
@@ -312,8 +328,8 @@ IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t points[], int front, in
 	// cvDrawContours(img, cnt, color[type], CV_RGB(0, 0, 255), 0, CV_FILLED, 8, cvPoint(0, 0));
 
 	int i;
-	for (i = 1; i < count; i++)
-		cvLine(img, points[(front + i - 1) % MAX_POINTS].point, points[(front + i) % MAX_POINTS].point, color[type], 2, 8, 0);
+	for (i = 1; i < pointsCount; i++)
+		cvLine(img, points[(pointsFront + i - 1) % MAX_POINTS].point, points[(pointsFront + i) % MAX_POINTS].point, color[type], 2, 8, 0);
 
 	cvFlip(img, NULL, 1);
 
