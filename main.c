@@ -165,12 +165,20 @@ void fluid_init (fluid_settings_t** settings, fluid_synth_t** synth, fluid_audio
 		fprintf(stderr, "FluidSynth: failed to create the settings\n");
 		exit(1);
 	}
+
 	*synth = new_fluid_synth(*settings);
 	if (*synth == NULL) {
 		fprintf(stderr, "FluidSynth: failed to create the synthesizer\n");
 		delete_fluid_settings(*settings);
 		exit(2);
 	}
+
+	// Automatically connect FluidSynth to system output if using JACK.
+	char* device;
+	fluid_settings_getstr(*settings, "audio.driver", &device);
+	if (strcmp(device, "jack") == 0)
+		fluid_settings_setint(*settings, "audio.jack.autoconnect", 1);
+
 	*adriver = new_fluid_audio_driver(*settings, *synth);
 	if (*adriver == NULL) {
 		fprintf(stderr, "FluidSynth: failed to create the audio driver\n");
@@ -178,6 +186,7 @@ void fluid_init (fluid_settings_t** settings, fluid_synth_t** synth, fluid_audio
 		delete_fluid_settings(*settings);
 		exit(3);
 	}
+
 	*sfont_id = fluid_synth_sfload(*synth, soundfont, 1);
 	if (*sfont_id == FLUID_FAILED) {
 		fprintf(stderr, "FluidSynth: unable to open soundfont %s\n", soundfont);
