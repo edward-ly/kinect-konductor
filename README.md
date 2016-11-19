@@ -41,15 +41,17 @@ When you run the program for the first time, the JACK server should start up as 
 
 ## Creating Your Own Score
 
-Our program reads a CSV file in a certain format in order to play music. The first line consists of two numbers. The first number indicates the number of program changes to read, while the second number indicates the number of note messages to read.
+Our program reads a CSV file in a certain format in order to play music. The first line consists of three numbers. The first number indicates the number of program changes to read, the second number indicates the number of note messages to read, and the third number indicates the PPQN (pulses per quarter note) value for the music.
 
 The following lines, equal to the expected number of program changes, each consist of a channel number (0-15) and a program number (0-127 for General MIDI), telling FluidSynth which program/instrument maps to which channel.
 
-Each of the remaining lines then represent a MIDI "note on" or "note off" message, which consists of the following four numbers in order:
+Each of the remaining lines then represent a MIDI "note on" or "note off" message, which consists of the following five numbers in order:
 
 * beat number
+* ticks after current beat
 * channel number
 * key/note number
 * 1 for "note on" or 0 for "note off"
 
-All numbers must be separated by whitespace. See our example CSV files in the `examples` folder for reference. Ensure that each message is sorted by increasing beat number as each MIDI message will be played in the same order as they are read from the file.
+All numbers must be separated by whitespace. See our example CSV files in the `examples` folder for reference. Ensure that each message is sorted by increasing beat number followed by increasing tick count as each MIDI message will be played in the same order as they are read from the file.
+
