@@ -8,9 +8,9 @@
 
 const int SCREENX = 1200, SCREENY = 800;
 const int WIN_TYPE = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE;
-const int NUM_MILLISECONDS = 100, SAMPLE_RATE = 44100;
 const int WIDTH = 640, HEIGHT = 480, TIMER = 16;
-const int MAX_POINTS = 5, MAX_NOTES = 2048, THRESHOLD = 256;
+const int MAX_CHANNELS = 16;
+const int MAX_POINTS = 5, THRESHOLD = 256;
 const double MIN_DISTANCE = 12.0, MAX_DISTANCE = 224.0;
 const double MAX_ACCEL = 32768.0, BEATS_PER_MEASURE = 4.0;
 
@@ -19,13 +19,15 @@ bool debug_stream = false;
 bool debug_time = false;
 
 double currentBeat = -5.0; // Don't start music immediately.
-int currentNote = 0, notesRead = 0, velocity;
+int currentNote = 0, programCount, noteCount, velocity;
 clock_t time1, time2;
 double seconds, BPM;
 double vel1, vel2, accel, beat_accel = 0;
 
-void        parse_notes          (char*, note_t[]);
-void        fluid_init           (fluid_settings_t**, fluid_synth_t**, fluid_audio_driver_t**, int*, char*);
+void        fluid_init           (fluid_settings_t**,
+                                  fluid_synth_t**,
+                                  fluid_audio_driver_t**,
+                                  int*, char*, int[]);
 double      diffclock            (clock_t, clock_t);
 bool        is_inside_window     (CvPoint);
 double      distance             (CvPoint, CvPoint);
@@ -43,26 +45,76 @@ int main (int argc, char* argv[]) {
 		exit(-1);
 	}
 
-	note_t notes[MAX_NOTES];
-	parse_notes(argv[1], notes);
+	FILE* file;
+	char* filename = argv[1];
+	file = fopen(filename, "r");
+	if (file == NULL) {
+		fprintf(stderr, "Error: unable to open file %s\n", filename);
+		exit(-2);
+	}
+
+	if (fscanf(file, "%i %i", &programCount, &noteCount) == EOF) {
+		fclose(file);
+		fprintf(stderr, "Error: unable to read program and message count from file %s\n", filename);
+		exit(-3);
+	}
+
+	int channel, program, i;
+	int programs[MAX_CHANNELS];
+	// Initialize program changes to none.
+	for (i = 0; i < MAX_CHANNELS; i++)
+		programs[i] = -1;
+
+	// Get program changes.
+	for (i = 0; i < programCount; i++) {
+		if (fscanf(file, "%i %i", &channel, &program) == EOF) {
+			fclose(file);
+			fprintf(stderr, "Error: unable to read program change from file %s\n", filename);
+			exit(-4);
+		}
+		else if ((channel < 0) || (channel >= MAX_CHANNELS)) {
+			fclose(file);
+			fprintf(stderr, "Error: invalid channel number %i read from file %s\n", channel, filename);
+			exit(-5);
+		}
+		else {
+			programs[channel] = program;
+			if (debug_input)
+				fprintf(stderr, "%i, %i\n", channel, program);
+		}
+	}
+
+	// Initialize array of note messages and get messages.
+	note_t notes[noteCount];
+	for (i = 0; i < noteCount; i++) {
+		if (fscanf(file, "%lf %i %i %i", &notes[i].beat, &notes[i].channel, &notes[i].key, &notes[i].noteOn) == EOF) {
+			fclose(file);
+			fprintf(stderr, "Error: invalid note message %i of %i read from file %s\n", i + 1, noteCount, filename);
+			exit(-6);
+		}
+		else if (debug_input)
+			fprintf(stderr, "%1lf, %i, %i, %i\n", notes[i].beat, notes[i].channel, notes[i].key, notes[i].noteOn);
+	}
+
+	fclose(file);
 
 	fluid_settings_t* settings;
 	fluid_synth_t* synth;
 	fluid_audio_driver_t* adriver;
 	int sfont_id;
-	fluid_init(&settings, &synth, &adriver, &sfont_id, argv[2]);
+	fluid_init(&settings, &synth, &adriver, &sfont_id, argv[2], programs);
 
 	const char* win_hand = "Kinect Konductor";
 	point_t points[MAX_POINTS];
 	int front = 0, count = 0;
 	bool beatIsReady = false;
-	time1 = clock(); int n;
+	time1 = clock();
 
 	// Initialize queue to prevent erratic points.
-	for (n = 0; n < MAX_POINTS; n++) {
-		points[n].point.x = WIDTH/2;
-		points[n].point.y = HEIGHT/2;
-		points[n].time = time1;
+	for (i = 0; i < MAX_POINTS; i++) {
+		points[i].point.x = WIDTH/2;
+		points[i].point.y = HEIGHT/2;
+		points[i].time = time1;
 	}
 
 	cvNamedWindow(win_hand, WIN_TYPE);
@@ -138,28 +190,10 @@ int main (int argc, char* argv[]) {
 
 //////////////////////////////////////////////////////
 
-void parse_notes (char* filename, note_t notes[]) {
-	FILE* file;
-	file = fopen(filename, "r");
-	if (file == NULL) {
-		fprintf(stderr, "Error: unable to open file %s\n", filename);
-		exit(-2);
-	}
-
-	int n = 0;
-	while (fscanf(file, "%lf, %i, %i, %i", &notes[n].beat, &notes[n].channel, &notes[n].key, &notes[n].noteOn) != EOF) {
-		if (debug_input)
-			fprintf(stderr, "%1lf, %i, %i, %i\n", notes[n].beat, notes[n].channel, notes[n].key, notes[n].noteOn);
-		if (++n >= MAX_NOTES) {
-			fprintf(stderr, "Warning: maximum number of notes reached, music will end after beat %1lf\n", notes[MAX_NOTES - 1].beat);
-			break;
-		}
-	}
-	notesRead = n;
-	fclose(file);
-}
-
-void fluid_init (fluid_settings_t** settings, fluid_synth_t** synth, fluid_audio_driver_t** adriver, int* sfont_id, char* soundfont) {
+void fluid_init (fluid_settings_t** settings,
+                 fluid_synth_t** synth,
+                 fluid_audio_driver_t** adriver,
+                 int* sfont_id, char* soundfont, int programs[]) {
 	*settings = new_fluid_settings();
 	if (*settings == NULL) {
 		fprintf(stderr, "FluidSynth: failed to create the settings\n");
@@ -194,6 +228,13 @@ void fluid_init (fluid_settings_t** settings, fluid_synth_t** synth, fluid_audio
 		delete_fluid_synth(*synth);
 		delete_fluid_settings(*settings);
 		exit(4);
+	}
+
+	// Set instruments / make program changes.
+	int i;
+	for (i = 0; i < MAX_CHANNELS; i++) {
+		if (programs[i] != -1)
+			fluid_synth_program_select(*synth, i, *sfont_id, 0, programs[i]);
 	}
 }
 
@@ -246,7 +287,7 @@ void play_current_notes (fluid_synth_t* synth, note_t notes[]) {
 	velocity = (int)(beat_accel * 127.0 / MAX_ACCEL);
 	if (velocity > 127) velocity = 127;
 
-	while ((currentNote < notesRead)
+	while ((currentNote < noteCount)
 			&& (notes[currentNote].beat <= currentBeat)) {
 		if (notes[currentNote].noteOn)
 			fluid_synth_noteon(synth, notes[currentNote].channel, notes[currentNote].key, velocity);
@@ -254,7 +295,7 @@ void play_current_notes (fluid_synth_t* synth, note_t notes[]) {
 		currentNote++;
 	}
 
-	if (currentNote >= notesRead) {
+	if (currentNote >= noteCount) {
 		// Reset music.
 		currentNote = 0;
 		currentBeat = -5.0;

@@ -39,12 +39,17 @@ When you run the program for the first time, the JACK server should start up as 
 
 >If JACK is unable to use real-time scheduling, run the commands `sudo dpkg-reconfigure -p high jackd` to give JACK high priority and `sudo adduser [your-username] audio` to add your user account to the "audio" group, and restart your computer.
 
-## Creating Your Own CSV File
+## Creating Your Own Score
 
-Each line in a CSV file represents a MIDI "note on" or "note off" message, formatted with the following four numbers:
+Our program reads a CSV file in a certain format in order to play music. The first line consists of two numbers. The first number indicates the number of program changes to read, while the second number indicates the number of note messages to read.
 
-```
-beatNumber, channelNumber, keyNumber, 1 = noteOn / 0 = noteOff
-```
+The following lines, equal to the expected number of program changes, each consist of a channel number (0-15) and a program number (0-127 for General MIDI), telling FluidSynth which program/instrument maps to which channel.
 
-For example, a middle C note on channel 2 played on beat 4 is written as `4, 2, 60, 1`. Ensure that each message is sorted by increasing beat number as each MIDI message will be played in the same order as they are read from the file.
+Each of the remaining lines then represent a MIDI "note on" or "note off" message, which consists of the following four numbers in order:
+
+* beat number
+* channel number
+* key/note number
+* 1 for "note on" or 0 for "note off"
+
+All numbers must be separated by whitespace. See our example CSV files in the `examples` folder for reference. Ensure that each message is sorted by increasing beat number as each MIDI message will be played in the same order as they are read from the file.
