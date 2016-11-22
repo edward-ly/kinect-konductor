@@ -13,10 +13,6 @@ const int MAX_CHANNELS = 16, MAX_BEATS = 4;
 const int MAX_POINTS = 5, THRESHOLD = 64;
 const double MIN_DISTANCE = 12.0, MAX_ACCEL = 16384.0;
 
-bool debug_input = false;
-bool debug_stream = false;
-bool debug_time = false;
-
 int currentBeat = -5; // Don't start music immediately.
 int currentNote = 0, programCount, noteCount;
 unsigned short velocity;
@@ -81,23 +77,22 @@ int main (int argc, char* argv[]) {
 			fprintf(stderr, "Error: invalid channel number %i read from file %s\n", channel, filename);
 			exit(-5);
 		}
-		else {
-			programs[channel] = program;
-			if (debug_input)
-				fprintf(stderr, "%i, %i\n", channel, program);
-		}
+		else programs[channel] = program;
 	}
 
 	// Now initialize array of note messages and get messages.
 	note_t notes[noteCount];
 	for (i = 0; i < noteCount; i++) {
-		if (fscanf(file, "%i %u %i %hi %i", &notes[i].beat, &notes[i].tick, &notes[i].channel, &notes[i].key, &notes[i].noteOn) == EOF) {
+		if (fscanf(file, "%i %u %i %hi %i",
+                         &notes[i].beat,
+                         &notes[i].tick,
+                         &notes[i].channel,
+                         &notes[i].key,
+                         &notes[i].noteOn) == EOF) {
 			fclose(file);
 			fprintf(stderr, "Error: invalid note message %i of %i read from file %s\n", i + 1, noteCount, filename);
 			exit(-6);
 		}
-		else if (debug_input)
-			fprintf(stderr, "%i, %i, %i, %i, %i\n", notes[i].beat, notes[i].tick, notes[i].channel, notes[i].key, notes[i].noteOn);
 	}
 
 	fclose(file);
@@ -106,9 +101,9 @@ int main (int argc, char* argv[]) {
 
 	const char* win_hand = "Kinect Konductor";
 	point_t points[MAX_POINTS]; // Queue of last known hand positions.
-	int pointsFront = 0, pointsCount = 0;
-	int clockTicks[MAX_BEATS]; // Queue of synth ticks elapsed b/t beats.
-	int clockTicksFront = 0, clockTicksCount = 0;
+	int p_front = 0, p_count = 0;
+	int ticks[MAX_BEATS]; // Queue of synth ticks elapsed b/t beats.
+	int c_front = 0, c_count = 0;
 	bool beatIsReady = false;
 	time1 = fluid_sequencer_get_tick(sequencer);
 
@@ -119,7 +114,7 @@ int main (int argc, char* argv[]) {
 		points[i].time = time1;
 	}
 	for (i = 0; i < MAX_BEATS; i++)
-		clockTicks[i] = 0;
+		ticks[i] = 0;
 
 	cvNamedWindow(win_hand, WIN_TYPE);
 	cvMoveWindow(win_hand, SCREENX - WIDTH/2, HEIGHT/2);
@@ -139,36 +134,37 @@ int main (int argc, char* argv[]) {
 			continue;
 
 		// Add point to queue.
-		if (pointsCount < MAX_POINTS) {
-			points[(pointsFront + pointsCount) % MAX_POINTS].time = fluid_sequencer_get_tick(sequencer);
-			points[(pointsFront + pointsCount++) % MAX_POINTS].point = cent;
+		if (p_count < MAX_POINTS) {
+			points[(p_front + p_count) % MAX_POINTS].time = fluid_sequencer_get_tick(sequencer);
+			points[(p_front + p_count++) % MAX_POINTS].point = cent;
 		}
 		else {
-			points[pointsFront].time = fluid_sequencer_get_tick(sequencer);
-			points[pointsFront++].point = cent;
-			pointsFront %= MAX_POINTS;
+			points[p_front].time = fluid_sequencer_get_tick(sequencer);
+			points[p_front++].point = cent;
+			p_front %= MAX_POINTS;
 		}
 
 		// Update velocity and acceleration.
-		analyze_points(points, pointsFront);
+		analyze_points(points, p_front);
 
-		if (beatIsReady
-				&& (distance(points[(pointsFront + pointsCount - 1) % MAX_POINTS].point, points[pointsFront].point) > MIN_DISTANCE)
-				&& (vel1 < 0) && (vel2 > THRESHOLD)) {
+		CvPoint prev = points[(p_front + p_count - 1) % MAX_POINTS].point;
+		CvPoint last = points[p_front].point;
+		if (beatIsReady && (vel1 < 0) && (vel2 > THRESHOLD)
+                        && (distance(prev, last) > MIN_DISTANCE)) {
 			// Add elapsed clock ticks to queue.
-			time2 = points[(pointsFront + pointsCount - 1) % MAX_POINTS].time;
-			if (clockTicksCount < MAX_BEATS)
-				clockTicks[(clockTicksFront + clockTicksCount++) % MAX_BEATS] = time2 - time1;
+			time2 = points[(p_front + p_count - 1) % MAX_POINTS].time;
+			if (c_count < MAX_BEATS)
+				ticks[(c_front + c_count++) % MAX_BEATS] = time2 - time1;
 			else {
-				clockTicks[clockTicksFront++] = time2 - time1;
-				clockTicksFront %= MAX_BEATS;
+				ticks[c_front++] = time2 - time1;
+				c_front %= MAX_BEATS;
 			}
 			time1 = time2;
 
 			ticksPerBeat = 0;
-			for (i = 0; i < clockTicksCount; i++)
-				ticksPerBeat += clockTicks[(clockTicksFront + i) % MAX_BEATS];
-			ticksPerBeat /= clockTicksCount;
+			for (i = 0; i < c_count; i++)
+				ticksPerBeat += ticks[(c_front + i) % MAX_BEATS];
+			ticksPerBeat /= c_count;
 
 			currentBeat++;
 			play_current_notes(synth, notes);
@@ -178,7 +174,7 @@ int main (int argc, char* argv[]) {
 		if (!beatIsReady && (vel1 > 0) && (vel2 < 0))
 			beatIsReady = true;
 
-		a = draw_depth_hand(cnt, (int)beatIsReady, points, pointsFront, pointsCount);
+		a = draw_depth_hand(cnt, (int)beatIsReady, points, p_front, p_count);
 		cvShowImage(win_hand, a);
 		cvResizeWindow(win_hand, WIDTH/2, HEIGHT/2);
 
@@ -263,24 +259,15 @@ double velocity_y (point_t end, point_t beginning) {
 	return (end.point.y - beginning.point.y) / diffclock(end.time, beginning.time);
 }
 
-void analyze_points (point_t points[], int pointsFront) {
-	vel2 = -1 * velocity_y(points[(pointsFront + MAX_POINTS - 1) % MAX_POINTS], points[(pointsFront + MAX_POINTS - 3) % MAX_POINTS]);
-	vel1 = -1 * velocity_y(points[(pointsFront + 2) % MAX_POINTS], points[pointsFront]);
-	accel = abs(vel2 - vel1) / diffclock(points[(pointsFront + MAX_POINTS - 1) % MAX_POINTS].time, points[(pointsFront + 2) % MAX_POINTS].time);
+void analyze_points (point_t points[], int front) {
+	point_t point4 = points[(front + MAX_POINTS - 1) % MAX_POINTS];
+	point_t point3 = points[(front + MAX_POINTS - 3) % MAX_POINTS];
+	point_t point2 = points[(front + 2) % MAX_POINTS];
+	point_t point1 = points[front];
 
-	if (debug_stream) {
-		int i;
-		for (i = 0; i < MAX_POINTS; i++)
-			fprintf(stderr, "(%i, %i), ", points[(pointsFront + i) % MAX_POINTS].point.x, points[(pointsFront + i) % MAX_POINTS].point.y);
-		fprintf(stderr, "%lf, %lf, %lf\n", vel1, vel2, accel);
-	}
-
-	if (debug_time) {
-		int i;
-		for (i = 1; i < MAX_POINTS; i++)
-			fprintf(stderr, "%lf, ", diffclock(points[(pointsFront + i) % MAX_POINTS].time, points[(pointsFront + i - 1) % MAX_POINTS].time));
-		fprintf(stderr, "\n");
-	}
+	vel2 = -1 * velocity_y(point4, point3);
+	vel1 = -1 * velocity_y(point2, point1);
+	accel = abs(vel2 - vel1) / diffclock(point4.time, point2.time);
 }
 
 void send_note (int chan, int key, unsigned short vel, unsigned int date, int on) {
@@ -301,8 +288,13 @@ void play_current_notes (fluid_synth_t* synth, note_t notes[]) {
 
 	while ((currentNote < noteCount)
 			&& (notes[currentNote].beat <= currentBeat)) {
-		unsigned int at_tick = now + (ticksPerBeat * notes[currentNote].tick / PPQN);
-		send_note(notes[currentNote].channel, notes[currentNote].key, velocity, at_tick, notes[currentNote].noteOn);
+		int channel = notes[currentNote].channel;
+		short key = notes[currentNote].key;
+		unsigned int at_tick = now;
+		at_tick += ticksPerBeat * notes[currentNote].tick / PPQN;
+		bool noteOn = notes[currentNote].noteOn;
+
+		send_note(channel, key, velocity, at_tick, noteOn);
 		currentNote++;
 	}
 
@@ -313,19 +305,18 @@ void play_current_notes (fluid_synth_t* synth, note_t notes[]) {
 	}
 }
 
-IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t points[], int pointsFront, int pointsCount) {
-	static IplImage *img = NULL;
+IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t points[], int front, int count) {
+	static IplImage *img = NULL; int i;
 	CvScalar color[] = {CV_RGB(255, 0, 0), CV_RGB(0, 255, 0)};
 
 	if (img == NULL) img = cvCreateImage(cvSize(WIDTH, HEIGHT), 8, 3);
 
 	cvZero(img);
-	// cvDrawContours(img, cnt, color[type], CV_RGB(0, 0, 255), 0, CV_FILLED, 8, cvPoint(0, 0));
-
-	int i;
-	for (i = 1; i < pointsCount; i++)
-		cvLine(img, points[(pointsFront + i - 1) % MAX_POINTS].point, points[(pointsFront + i) % MAX_POINTS].point, color[type], 2, 8, 0);
-
+	for (i = 1; i < count; i++) {
+		CvPoint point1 = points[(front + i - 1) % MAX_POINTS].point;
+		CvPoint point2 = points[(front + i) % MAX_POINTS].point;
+		cvLine(img, point1, point2, color[type], 2, 8, 0);
+	}
 	cvFlip(img, NULL, 1);
 
 	return img;
