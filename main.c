@@ -11,11 +11,10 @@ const int WIN_TYPE = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE;
 const int WIDTH = 640, HEIGHT = 480, TIMER = 10;
 const int MAX_CHANNELS = 16, MAX_BEATS = 4;
 const int MAX_POINTS = 5, THRESHOLD = 64;
-const double MIN_DISTANCE = 12.0, MAX_DISTANCE = 224.0;
-const double MAX_ACCEL = 16384.0;
+const double MIN_DISTANCE = 12.0, MAX_ACCEL = 16384.0;
 
 bool debug_input = false;
-bool debug_stream = false;
+bool debug_stream = true;
 bool debug_time = false;
 
 int currentBeat = -5; // Don't start music immediately.
@@ -35,7 +34,6 @@ double ticksPerSecond;
 
 void      fluid_init         (char*, int[]);
 double    diffclock          (unsigned int, unsigned int);
-bool      is_inside_window   (CvPoint);
 double    distance           (CvPoint, CvPoint);
 double    velocity_y         (point_t, point_t);
 void      analyze_points     (point_t[], int);
@@ -127,7 +125,7 @@ int main (int argc, char* argv[]) {
 	cvNamedWindow(win_hand, WIN_TYPE);
 	cvMoveWindow(win_hand, SCREENX - WIDTH/2, HEIGHT/2);
 
-	// Main loop: detect hand and parse output.
+	// Main loop: detect and watch hand for beats.
 	while (true) {
 		IplImage *depth, *body, *hand, *a;
 		CvSeq *cnt;
@@ -141,55 +139,50 @@ int main (int argc, char* argv[]) {
 		if (!get_hand_contour_basic(hand, &cnt, &cent))
 			continue;
 
-		if (!is_inside_window(cent))
-			continue;
-
-		if ((pointsCount == 0) || distance(cent, points[(pointsFront + pointsCount) % MAX_POINTS].point) < MAX_DISTANCE) {
-			// Add point to queue.
-			if (pointsCount < MAX_POINTS) {
-				points[(pointsFront + pointsCount) % MAX_POINTS].time = fluid_sequencer_get_tick(sequencer);
-				points[(pointsFront + pointsCount++) % MAX_POINTS].point = cent;
-			}
-			else {
-				points[pointsFront].time = fluid_sequencer_get_tick(sequencer);
-				points[pointsFront++].point = cent;
-				pointsFront %= MAX_POINTS;
-			}
-
-			// Update velocity and acceleration.
-			analyze_points(points, pointsFront);
-
-			if (beatIsReady
-					&& (distance(points[(pointsFront + pointsCount - 1) % MAX_POINTS].point, points[pointsFront].point) > MIN_DISTANCE)
-					&& (vel1 < 0) && (vel2 > THRESHOLD)) {
-				// Add elapsed clock ticks to queue.
-				time2 = points[(pointsFront + pointsCount - 1) % MAX_POINTS].time;
-				if (clockTicksCount < MAX_BEATS)
-					clockTicks[(clockTicksFront + clockTicksCount++) % MAX_BEATS] = time2 - time1;
-				else {
-					clockTicks[clockTicksFront++] = time2 - time1;
-					clockTicksFront %= MAX_BEATS;
-				}
-				time1 = time2;
-
-				ticksPerBeat = 0;
-				for (i = 0; i < clockTicksCount; i++)
-					ticksPerBeat += clockTicks[(clockTicksFront + i) % MAX_BEATS];
-				ticksPerBeat /= clockTicksCount;
-
-				beat_accel = accel;
-				currentBeat++;
-				play_current_notes(synth, notes);
-				beatIsReady = false;
-			}
-
-			if (!beatIsReady && (vel1 > 0) && (vel2 < 0))
-				beatIsReady = true;
-
-			a = draw_depth_hand(cnt, (int)beatIsReady, points, pointsFront, pointsCount);
-			cvShowImage(win_hand, a);
-			cvResizeWindow(win_hand, WIDTH/2, HEIGHT/2);
+		// Add point to queue.
+		if (pointsCount < MAX_POINTS) {
+			points[(pointsFront + pointsCount) % MAX_POINTS].time = fluid_sequencer_get_tick(sequencer);
+			points[(pointsFront + pointsCount++) % MAX_POINTS].point = cent;
 		}
+		else {
+			points[pointsFront].time = fluid_sequencer_get_tick(sequencer);
+			points[pointsFront++].point = cent;
+			pointsFront %= MAX_POINTS;
+		}
+
+		// Update velocity and acceleration.
+		analyze_points(points, pointsFront);
+
+		if (beatIsReady
+				&& (distance(points[(pointsFront + pointsCount - 1) % MAX_POINTS].point, points[pointsFront].point) > MIN_DISTANCE)
+				&& (vel1 < 0) && (vel2 > THRESHOLD)) {
+			// Add elapsed clock ticks to queue.
+			time2 = points[(pointsFront + pointsCount - 1) % MAX_POINTS].time;
+			if (clockTicksCount < MAX_BEATS)
+				clockTicks[(clockTicksFront + clockTicksCount++) % MAX_BEATS] = time2 - time1;
+			else {
+				clockTicks[clockTicksFront++] = time2 - time1;
+				clockTicksFront %= MAX_BEATS;
+			}
+			time1 = time2;
+
+			ticksPerBeat = 0;
+			for (i = 0; i < clockTicksCount; i++)
+				ticksPerBeat += clockTicks[(clockTicksFront + i) % MAX_BEATS];
+			ticksPerBeat /= clockTicksCount;
+
+			beat_accel = accel;
+			currentBeat++;
+			play_current_notes(synth, notes);
+			beatIsReady = false;
+		}
+
+		if (!beatIsReady && (vel1 > 0) && (vel2 < 0))
+			beatIsReady = true;
+
+		a = draw_depth_hand(cnt, (int)beatIsReady, points, pointsFront, pointsCount);
+		cvShowImage(win_hand, a);
+		cvResizeWindow(win_hand, WIDTH/2, HEIGHT/2);
 
 		// Press any key to quit.
 		if (cvWaitKey(TIMER) != -1) break;
@@ -260,10 +253,6 @@ void fluid_init (char* soundfont, int programs[]) {
 
 double diffclock (unsigned int end, unsigned int beginning) {
 	return (end - beginning) / (double)ticksPerSecond;
-}
-
-bool is_inside_window (CvPoint p) {
-	return (p.x >= 0) && (p.y >= 0) && (p.x < WIDTH) && (p.y < HEIGHT);
 }
 
 double distance (CvPoint p1, CvPoint p2) {
