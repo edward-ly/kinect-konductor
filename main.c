@@ -37,8 +37,7 @@ double    diffclock          (unsigned int, unsigned int);
 double    distance           (CvPoint, CvPoint);
 double    velocity_y         (point_t, point_t);
 void      analyze_points     (point_t[], int);
-void      send_note_on       (int, int, unsigned short, unsigned int);
-void      send_note_off      (int, int, unsigned int);
+void      send_note          (int, int, unsigned short, unsigned int, int);
 void      play_current_notes (fluid_synth_t*, note_t[]);
 IplImage* draw_depth_hand    (CvSeq*, int, point_t[], int, int);
 
@@ -284,22 +283,14 @@ void analyze_points (point_t points[], int pointsFront) {
 	}
 }
 
-void send_note_on (int chan, int key, unsigned short vel, unsigned int date) {
-    fluid_event_t *evt = new_fluid_event();
-    fluid_event_set_source(evt, -1);
-    fluid_event_set_dest(evt, synthSeqID);
-    fluid_event_noteon(evt, chan, key, vel);
-    fluid_sequencer_send_at(sequencer, evt, date, 1);
-    delete_fluid_event(evt);
-}
-
-void send_note_off (int chan, int key, unsigned int date) {
-    fluid_event_t *evt = new_fluid_event();
-    fluid_event_set_source(evt, -1);
-    fluid_event_set_dest(evt, synthSeqID);
-    fluid_event_noteoff(evt, chan, key);
-    fluid_sequencer_send_at(sequencer, evt, date, 1);
-    delete_fluid_event(evt);
+void send_note (int chan, int key, unsigned short vel, unsigned int date, int on) {
+	fluid_event_t *evt = new_fluid_event();
+	fluid_event_set_source(evt, -1);
+	fluid_event_set_dest(evt, synthSeqID);
+	if (on) fluid_event_noteon(evt, chan, key, vel);
+	else fluid_event_noteoff(evt, chan, key);
+	fluid_sequencer_send_at(sequencer, evt, date, 1);
+	delete_fluid_event(evt);
 }
 
 void play_current_notes (fluid_synth_t* synth, note_t notes[]) {
@@ -311,10 +302,7 @@ void play_current_notes (fluid_synth_t* synth, note_t notes[]) {
 	while ((currentNote < noteCount)
 			&& (notes[currentNote].beat <= currentBeat)) {
 		unsigned int at_tick = now + (ticksPerBeat * notes[currentNote].tick / PPQN);
-
-		if (notes[currentNote].noteOn)
-			send_note_on(notes[currentNote].channel, notes[currentNote].key, velocity, at_tick);
-		else send_note_off(notes[currentNote].channel, notes[currentNote].key, at_tick);
+		send_note(notes[currentNote].channel, notes[currentNote].key, velocity, at_tick, notes[currentNote].noteOn);
 		currentNote++;
 	}
 
