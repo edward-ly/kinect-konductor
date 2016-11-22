@@ -20,7 +20,7 @@ bool debug_time = false;
 bool debug_clocks = true;
 
 int currentBeat = -5; // Don't start music immediately.
-int currentNote = 0, programCount, noteCount, velocity;
+int currentNote = 0, programCount, noteCount, tickCount, velocity;
 clock_t time1, time2;
 double seconds, BPM;
 double vel1, vel2, accel, beat_accel = 0;
@@ -62,9 +62,9 @@ int main (int argc, char* argv[]) {
 		exit(-2);
 	}
 
-	if (fscanf(file, "%i %i", &programCount, &noteCount) == EOF) {
+	if (fscanf(file, "%i %i %i", &programCount, &noteCount, &tickCount) == EOF) {
 		fclose(file);
-		fprintf(stderr, "Error: unable to read program and message count from file %s\n", filename);
+		fprintf(stderr, "Error: unable to read counts from file %s\n", filename);
 		exit(-3);
 	}
 
@@ -96,13 +96,13 @@ int main (int argc, char* argv[]) {
 	// Now initialize array of note messages and get messages.
 	note_t notes[noteCount];
 	for (i = 0; i < noteCount; i++) {
-		if (fscanf(file, "%i %i %i %i", &notes[i].beat, &notes[i].channel, &notes[i].key, &notes[i].noteOn) == EOF) {
+		if (fscanf(file, "%i %i %i %i %i", &notes[i].beat, &notes[i].tick, &notes[i].channel, &notes[i].key, &notes[i].noteOn) == EOF) {
 			fclose(file);
 			fprintf(stderr, "Error: invalid note message %i of %i read from file %s\n", i + 1, noteCount, filename);
 			exit(-6);
 		}
 		else if (debug_input)
-			fprintf(stderr, "%i, %i, %i, %i\n", notes[i].beat, notes[i].channel, notes[i].key, notes[i].noteOn);
+			fprintf(stderr, "%i, %i, %i, %i, %i\n", notes[i].beat, notes[i].tick, notes[i].channel, notes[i].key, notes[i].noteOn);
 	}
 
 	fclose(file);

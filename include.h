@@ -29,6 +29,7 @@ typedef struct point_t {
 
 typedef struct note_t {
 	int beat;
+	int tick;
 	int channel;
 	int key;
 	int noteOn;
