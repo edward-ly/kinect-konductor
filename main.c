@@ -25,10 +25,16 @@ clock_t time1, time2;
 double seconds, BPM;
 double vel1, vel2, accel, beat_accel = 0;
 
-void        fluid_init           (fluid_settings_t**,
-                                  fluid_synth_t**,
-                                  fluid_audio_driver_t**,
-                                  int*, char*, int[]);
+fluid_settings_t* settings;
+fluid_synth_t* synth;
+fluid_audio_driver_t* adriver;
+fluid_sequencer_t* sequencer;
+int sfont_id;
+short synthSeqID, mySeqID;
+unsigned int now;
+unsigned int seqduration;
+
+void        fluid_init           (char*, int[]);
 double      diffclock            (clock_t, clock_t);
 bool        is_inside_window     (CvPoint);
 double      distance             (CvPoint, CvPoint);
@@ -36,6 +42,8 @@ double      velocity_y           (point_t, point_t);
 void        analyze_points       (point_t[], int);
 void        calculate_BPM        (clock_t);
 void        play_current_notes   (fluid_synth_t*, note_t[]);
+void        seq_callback         (unsigned int, fluid_event_t*,
+                                  fluid_sequencer_t*, void*);
 IplImage*   draw_depth_hand      (CvSeq*, int, point_t[], int, int);
 
 //////////////////////////////////////////////////////
@@ -99,11 +107,7 @@ int main (int argc, char* argv[]) {
 
 	fclose(file);
 
-	fluid_settings_t* settings;
-	fluid_synth_t* synth;
-	fluid_audio_driver_t* adriver;
-	int sfont_id;
-	fluid_init(&settings, &synth, &adriver, &sfont_id, argv[2], programs);
+	fluid_init(argv[2], programs);
 
 	const char* win_hand = "Kinect Konductor";
 	point_t points[MAX_POINTS];
@@ -196,6 +200,7 @@ int main (int argc, char* argv[]) {
 	freenect_sync_stop();
 	cvDestroyAllWindows();
 
+	delete_fluid_sequencer(sequencer);
 	delete_fluid_audio_driver(adriver);
 	delete_fluid_synth(synth);
 	delete_fluid_settings(settings);
@@ -205,43 +210,40 @@ int main (int argc, char* argv[]) {
 
 //////////////////////////////////////////////////////
 
-void fluid_init (fluid_settings_t** settings,
-                 fluid_synth_t** synth,
-                 fluid_audio_driver_t** adriver,
-                 int* sfont_id, char* soundfont, int programs[]) {
-	*settings = new_fluid_settings();
-	if (*settings == NULL) {
+void fluid_init (char* soundfont, int programs[]) {
+	settings = new_fluid_settings();
+	if (settings == NULL) {
 		fprintf(stderr, "FluidSynth: failed to create the settings\n");
 		exit(1);
 	}
 
-	*synth = new_fluid_synth(*settings);
-	if (*synth == NULL) {
+	// Automatically connect FluidSynth to system output if using JACK.
+	char* device;
+	fluid_settings_getstr(settings, "audio.driver", &device);
+	if (strcmp(device, "jack") == 0)
+		fluid_settings_setint(settings, "audio.jack.autoconnect", 1);
+
+	synth = new_fluid_synth(settings);
+	if (synth == NULL) {
 		fprintf(stderr, "FluidSynth: failed to create the synthesizer\n");
-		delete_fluid_settings(*settings);
+		delete_fluid_settings(settings);
 		exit(2);
 	}
 
-	// Automatically connect FluidSynth to system output if using JACK.
-	char* device;
-	fluid_settings_getstr(*settings, "audio.driver", &device);
-	if (strcmp(device, "jack") == 0)
-		fluid_settings_setint(*settings, "audio.jack.autoconnect", 1);
-
-	*adriver = new_fluid_audio_driver(*settings, *synth);
-	if (*adriver == NULL) {
+	adriver = new_fluid_audio_driver(settings, synth);
+	if (adriver == NULL) {
 		fprintf(stderr, "FluidSynth: failed to create the audio driver\n");
-		delete_fluid_synth(*synth);
-		delete_fluid_settings(*settings);
+		delete_fluid_synth(synth);
+		delete_fluid_settings(settings);
 		exit(3);
 	}
 
-	*sfont_id = fluid_synth_sfload(*synth, soundfont, 1);
-	if (*sfont_id == FLUID_FAILED) {
+	sfont_id = fluid_synth_sfload(*synth, soundfont, 1);
+	if (sfont_id == FLUID_FAILED) {
 		fprintf(stderr, "FluidSynth: unable to open soundfont %s\n", soundfont);
-		delete_fluid_audio_driver(*adriver);
-		delete_fluid_synth(*synth);
-		delete_fluid_settings(*settings);
+		delete_fluid_audio_driver(adriver);
+		delete_fluid_synth(synth);
+		delete_fluid_settings(settings);
 		exit(4);
 	}
 
@@ -249,8 +251,12 @@ void fluid_init (fluid_settings_t** settings,
 	int i;
 	for (i = 0; i < MAX_CHANNELS; i++) {
 		if (programs[i] != -1)
-			fluid_synth_program_select(*synth, i, *sfont_id, 0, programs[i]);
+			fluid_synth_program_select(synth, i, sfont_id, 0, programs[i]);
 	}
+
+	sequencer = new_fluid_sequencer2(0);
+	synthSeqID = fluid_sequencer_register_fluidsynth(sequencer, synth);
+	mySeqID = fluid_sequencer_register_client(sequencer, "me", seq_callback, NULL);
 }
 
 double diffclock (clock_t end, clock_t beginning) {
@@ -316,6 +322,11 @@ void play_current_notes (fluid_synth_t* synth, note_t notes[]) {
 		currentNote = 0;
 		currentBeat = -5;
 	}
+}
+
+void seq_callback (unsigned int time, fluid_event_t* event,
+                   fluid_sequencer_t* seq, void* data) {
+
 }
 
 IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t points[], int pointsFront, int pointsCount) {
