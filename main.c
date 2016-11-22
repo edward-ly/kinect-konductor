@@ -8,7 +8,7 @@
 
 const int SCREENX = 1200, SCREENY = 800;
 const int WIN_TYPE = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE;
-const int WIDTH = 640, HEIGHT = 480, TIMER = 1;
+const int WIDTH = 640, HEIGHT = 480, TIMER = 10;
 const int MAX_CHANNELS = 16, MAX_BEATS = 4;
 const int MAX_POINTS = 5, THRESHOLD = 64;
 const double MIN_DISTANCE = 12.0, MAX_DISTANCE = 224.0;
@@ -17,13 +17,12 @@ const double MAX_ACCEL = 16384.0;
 bool debug_input = false;
 bool debug_stream = false;
 bool debug_time = false;
-bool debug_clocks = false;
 
 int currentBeat = -5; // Don't start music immediately.
 int currentNote = 0, programCount, noteCount;
 unsigned short velocity;
 unsigned int PPQN, ticksPerBeat, time1, time2;
-double BPM, vel1, vel2, accel, beat_accel = 0;
+double vel1, vel2, accel, beat_accel = 0;
 
 fluid_settings_t* settings;
 fluid_synth_t* synth;
@@ -53,7 +52,7 @@ int main (int argc, char* argv[]) {
 		exit(-1);
 	}
 
-	FILE* file;
+	FILE* file; // Start opening music file and parse input.
 	char* filename = argv[1];
 	file = fopen(filename, "r");
 	if (file == NULL) {
@@ -106,17 +105,17 @@ int main (int argc, char* argv[]) {
 
 	fclose(file);
 
-	fluid_init(argv[2], programs);
+	fluid_init(argv[2], programs); // Initialize FluidSynth.
 
 	const char* win_hand = "Kinect Konductor";
-	point_t points[MAX_POINTS];
+	point_t points[MAX_POINTS]; // Queue of last known hand positions.
 	int pointsFront = 0, pointsCount = 0;
-	int clockTicks[MAX_BEATS];
+	int clockTicks[MAX_BEATS]; // Queue of synth ticks elapsed b/t beats.
 	int clockTicksFront = 0, clockTicksCount = 0;
 	bool beatIsReady = false;
 	time1 = fluid_sequencer_get_tick(sequencer);
 
-	// Initialize queues to prevent erratic points.
+	// Initialize queues to prevent erratic results.
 	for (i = 0; i < MAX_POINTS; i++) {
 		points[i].point.x = WIDTH/2;
 		points[i].point.y = HEIGHT/2;
@@ -127,7 +126,8 @@ int main (int argc, char* argv[]) {
 
 	cvNamedWindow(win_hand, WIN_TYPE);
 	cvMoveWindow(win_hand, SCREENX - WIDTH/2, HEIGHT/2);
-	
+
+	// Main loop: detect hand and parse output.
 	while (true) {
 		IplImage *depth, *body, *hand, *a;
 		CvSeq *cnt;
@@ -172,21 +172,13 @@ int main (int argc, char* argv[]) {
 				}
 				time1 = time2;
 
-				beat_accel = accel;
-				currentBeat++;
-
-				if (debug_clocks) {
-					for (i = 0; i < MAX_BEATS; i++)
-						fprintf(stderr, "%i, ", clockTicks[(clockTicksFront + i) % MAX_BEATS]);
-				}
-
 				ticksPerBeat = 0;
 				for (i = 0; i < clockTicksCount; i++)
 					ticksPerBeat += clockTicks[(clockTicksFront + i) % MAX_BEATS];
 				ticksPerBeat /= clockTicksCount;
-				BPM = 60.0 * ticksPerSecond / ticksPerBeat;
-				if (debug_clocks) fprintf(stderr, "%u, %f, %f, %f, %f\n", ticksPerBeat, BPM, vel1, vel2, beat_accel);
 
+				beat_accel = accel;
+				currentBeat++;
 				play_current_notes(synth, notes);
 				beatIsReady = false;
 			}
