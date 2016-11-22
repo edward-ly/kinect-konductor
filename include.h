@@ -1,13 +1,12 @@
 // File: include.h
 // Author: Edward Ly
-// Last Modified: 15 November 2016
+// Last Modified: 22 November 2016
 // Includes all libraries and structs used in main application.
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <math.h>
-#include <time.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <string.h>
@@ -24,14 +23,14 @@
 
 typedef struct point_t {
 	CvPoint point;
-	clock_t time;
+	unsigned int time;
 } point_t;
 
 typedef struct note_t {
 	int beat;
-	int tick;
+	unsigned int tick;
 	int channel;
-	int key;
+	short key;
 	int noteOn;
 } note_t;
 

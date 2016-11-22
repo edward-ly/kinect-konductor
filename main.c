@@ -1,6 +1,6 @@
 // File: main.c
 // Author: Edward Ly
-// Last Modified: 18 November 2016
+// Last Modified: 22 November 2016
 // Description: A simple virtual conductor application for Kinect for Windows v1.
 // See the LICENSE file for license information.
 
@@ -9,21 +9,21 @@
 const int SCREENX = 1200, SCREENY = 800;
 const int WIN_TYPE = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE;
 const int WIDTH = 640, HEIGHT = 480, TIMER = 1;
-const int MAX_CHANNELS = 16, BEAT_COUNT = 4;
-const int MAX_POINTS = 5, THRESHOLD = 256;
+const int MAX_CHANNELS = 16, MAX_BEATS = 4;
+const int MAX_POINTS = 5, THRESHOLD = 64;
 const double MIN_DISTANCE = 12.0, MAX_DISTANCE = 224.0;
-const double MAX_ACCEL = 32768.0;
+const double MAX_ACCEL = 16384.0;
 
 bool debug_input = false;
 bool debug_stream = false;
 bool debug_time = false;
-bool debug_clocks = true;
+bool debug_clocks = false;
 
 int currentBeat = -5; // Don't start music immediately.
-int currentNote = 0, programCount, noteCount, tickCount, velocity;
-clock_t time1, time2;
-double seconds, BPM;
-double vel1, vel2, accel, beat_accel = 0;
+int currentNote = 0, programCount, noteCount;
+unsigned short velocity;
+unsigned int PPQN, ticksPerBeat, time1, time2;
+double BPM, vel1, vel2, accel, beat_accel = 0;
 
 fluid_settings_t* settings;
 fluid_synth_t* synth;
@@ -32,19 +32,18 @@ fluid_sequencer_t* sequencer;
 int sfont_id;
 short synthSeqID, mySeqID;
 unsigned int now;
-unsigned int seqduration;
+double ticksPerSecond;
 
-void        fluid_init           (char*, int[]);
-double      diffclock            (clock_t, clock_t);
-bool        is_inside_window     (CvPoint);
-double      distance             (CvPoint, CvPoint);
-double      velocity_y           (point_t, point_t);
-void        analyze_points       (point_t[], int);
-void        calculate_BPM        (clock_t);
-void        play_current_notes   (fluid_synth_t*, note_t[]);
-void        seq_callback         (unsigned int, fluid_event_t*,
-                                  fluid_sequencer_t*, void*);
-IplImage*   draw_depth_hand      (CvSeq*, int, point_t[], int, int);
+void      fluid_init         (char*, int[]);
+double    diffclock          (unsigned int, unsigned int);
+bool      is_inside_window   (CvPoint);
+double    distance           (CvPoint, CvPoint);
+double    velocity_y         (point_t, point_t);
+void      analyze_points     (point_t[], int);
+void      send_note_on       (int, int, unsigned short, unsigned int);
+void      send_note_off      (int, int, unsigned int);
+void      play_current_notes (fluid_synth_t*, note_t[]);
+IplImage* draw_depth_hand    (CvSeq*, int, point_t[], int, int);
 
 //////////////////////////////////////////////////////
 
@@ -62,7 +61,7 @@ int main (int argc, char* argv[]) {
 		exit(-2);
 	}
 
-	if (fscanf(file, "%i %i %i", &programCount, &noteCount, &tickCount) == EOF) {
+	if (fscanf(file, "%i %i %u", &programCount, &noteCount, &PPQN) == EOF) {
 		fclose(file);
 		fprintf(stderr, "Error: unable to read counts from file %s\n", filename);
 		exit(-3);
@@ -96,7 +95,7 @@ int main (int argc, char* argv[]) {
 	// Now initialize array of note messages and get messages.
 	note_t notes[noteCount];
 	for (i = 0; i < noteCount; i++) {
-		if (fscanf(file, "%i %i %i %i %i", &notes[i].beat, &notes[i].tick, &notes[i].channel, &notes[i].key, &notes[i].noteOn) == EOF) {
+		if (fscanf(file, "%i %u %i %hi %i", &notes[i].beat, &notes[i].tick, &notes[i].channel, &notes[i].key, &notes[i].noteOn) == EOF) {
 			fclose(file);
 			fprintf(stderr, "Error: invalid note message %i of %i read from file %s\n", i + 1, noteCount, filename);
 			exit(-6);
@@ -112,10 +111,10 @@ int main (int argc, char* argv[]) {
 	const char* win_hand = "Kinect Konductor";
 	point_t points[MAX_POINTS];
 	int pointsFront = 0, pointsCount = 0;
-	int clocks[BEAT_COUNT];
-	int clocksFront = 0, clocksCount = 0;
+	int clockTicks[MAX_BEATS];
+	int clockTicksFront = 0, clockTicksCount = 0;
 	bool beatIsReady = false;
-	time1 = clock();
+	time1 = fluid_sequencer_get_tick(sequencer);
 
 	// Initialize queues to prevent erratic points.
 	for (i = 0; i < MAX_POINTS; i++) {
@@ -123,8 +122,8 @@ int main (int argc, char* argv[]) {
 		points[i].point.y = HEIGHT/2;
 		points[i].time = time1;
 	}
-	for (i = 0; i < BEAT_COUNT; i++)
-		clocks[i] = time1;
+	for (i = 0; i < MAX_BEATS; i++)
+		clockTicks[i] = 0;
 
 	cvNamedWindow(win_hand, WIN_TYPE);
 	cvMoveWindow(win_hand, SCREENX - WIDTH/2, HEIGHT/2);
@@ -148,11 +147,11 @@ int main (int argc, char* argv[]) {
 		if ((pointsCount == 0) || distance(cent, points[(pointsFront + pointsCount) % MAX_POINTS].point) < MAX_DISTANCE) {
 			// Add point to queue.
 			if (pointsCount < MAX_POINTS) {
-				points[(pointsFront + pointsCount) % MAX_POINTS].time = clock();
+				points[(pointsFront + pointsCount) % MAX_POINTS].time = fluid_sequencer_get_tick(sequencer);
 				points[(pointsFront + pointsCount++) % MAX_POINTS].point = cent;
 			}
 			else {
-				points[pointsFront].time = clock();
+				points[pointsFront].time = fluid_sequencer_get_tick(sequencer);
 				points[pointsFront++].point = cent;
 				pointsFront %= MAX_POINTS;
 			}
@@ -165,22 +164,29 @@ int main (int argc, char* argv[]) {
 					&& (vel1 < 0) && (vel2 > THRESHOLD)) {
 				// Add elapsed clock ticks to queue.
 				time2 = points[(pointsFront + pointsCount - 1) % MAX_POINTS].time;
-				if (clocksCount < BEAT_COUNT)
-					clocks[(clocksFront + clocksCount++) % BEAT_COUNT] = (int)(time2 - time1);
+				if (clockTicksCount < MAX_BEATS)
+					clockTicks[(clockTicksFront + clockTicksCount++) % MAX_BEATS] = time2 - time1;
 				else {
-					clocks[clocksFront++] = (int)(time2 - time1);
-					clocksFront %= BEAT_COUNT;
+					clockTicks[clockTicksFront++] = time2 - time1;
+					clockTicksFront %= MAX_BEATS;
 				}
 				time1 = time2;
 
-				if (debug_clocks) {
-					for (i = 0; i < BEAT_COUNT; i++)
-						fprintf(stderr, "%i, ", (int)clocks[(clocksFront + i) % BEAT_COUNT]);
-					fprintf(stderr, "\n");
-				}
-
 				beat_accel = accel;
 				currentBeat++;
+
+				if (debug_clocks) {
+					for (i = 0; i < MAX_BEATS; i++)
+						fprintf(stderr, "%i, ", clockTicks[(clockTicksFront + i) % MAX_BEATS]);
+				}
+
+				ticksPerBeat = 0;
+				for (i = 0; i < clockTicksCount; i++)
+					ticksPerBeat += clockTicks[(clockTicksFront + i) % MAX_BEATS];
+				ticksPerBeat /= clockTicksCount;
+				BPM = 60.0 * ticksPerSecond / ticksPerBeat;
+				if (debug_clocks) fprintf(stderr, "%u, %f, %f, %f, %f\n", ticksPerBeat, BPM, vel1, vel2, beat_accel);
+
 				play_current_notes(synth, notes);
 				beatIsReady = false;
 			}
@@ -238,7 +244,7 @@ void fluid_init (char* soundfont, int programs[]) {
 		exit(3);
 	}
 
-	sfont_id = fluid_synth_sfload(*synth, soundfont, 1);
+	sfont_id = fluid_synth_sfload(synth, soundfont, 1);
 	if (sfont_id == FLUID_FAILED) {
 		fprintf(stderr, "FluidSynth: unable to open soundfont %s\n", soundfont);
 		delete_fluid_audio_driver(adriver);
@@ -256,11 +262,12 @@ void fluid_init (char* soundfont, int programs[]) {
 
 	sequencer = new_fluid_sequencer2(0);
 	synthSeqID = fluid_sequencer_register_fluidsynth(sequencer, synth);
-	mySeqID = fluid_sequencer_register_client(sequencer, "me", seq_callback, NULL);
+	mySeqID = fluid_sequencer_register_client(sequencer, "me", NULL, NULL);
+	ticksPerSecond = fluid_sequencer_get_time_scale(sequencer);
 }
 
-double diffclock (clock_t end, clock_t beginning) {
-	return (end - beginning) / (double)CLOCKS_PER_SEC;
+double diffclock (unsigned int end, unsigned int beginning) {
+	return (end - beginning) / (double)ticksPerSecond;
 }
 
 bool is_inside_window (CvPoint p) {
@@ -297,36 +304,45 @@ void analyze_points (point_t points[], int pointsFront) {
 	}
 }
 
-void calculate_BPM (clock_t end) {
-	time2 = end;
-	seconds = diffclock(time2, time1);
-	BPM = 60.0 / seconds;
-	fprintf(stderr, "%f, %f\n", seconds, BPM);
-	time1 = time2;
+void send_note_on (int chan, int key, unsigned short vel, unsigned int date) {
+    fluid_event_t *evt = new_fluid_event();
+    fluid_event_set_source(evt, -1);
+    fluid_event_set_dest(evt, synthSeqID);
+    fluid_event_noteon(evt, chan, key, vel);
+    fluid_sequencer_send_at(sequencer, evt, date, 1);
+    delete_fluid_event(evt);
+}
+
+void send_note_off (int chan, int key, unsigned int date) {
+    fluid_event_t *evt = new_fluid_event();
+    fluid_event_set_source(evt, -1);
+    fluid_event_set_dest(evt, synthSeqID);
+    fluid_event_noteoff(evt, chan, key);
+    fluid_sequencer_send_at(sequencer, evt, date, 1);
+    delete_fluid_event(evt);
 }
 
 void play_current_notes (fluid_synth_t* synth, note_t notes[]) {
-	velocity = (int)(beat_accel * 127.0 / MAX_ACCEL);
+	velocity = (unsigned short)(beat_accel * 127.0 / MAX_ACCEL);
 	if (velocity > 127) velocity = 127;
+
+	now = fluid_sequencer_get_tick(sequencer);
 
 	while ((currentNote < noteCount)
 			&& (notes[currentNote].beat <= currentBeat)) {
+		unsigned int at_tick = now + (ticksPerBeat * notes[currentNote].tick / PPQN);
+
 		if (notes[currentNote].noteOn)
-			fluid_synth_noteon(synth, notes[currentNote].channel, notes[currentNote].key, velocity);
-		else fluid_synth_noteoff(synth, notes[currentNote].channel, notes[currentNote].key);
+			send_note_on(notes[currentNote].channel, notes[currentNote].key, velocity, at_tick);
+		else send_note_off(notes[currentNote].channel, notes[currentNote].key, at_tick);
 		currentNote++;
 	}
 
 	if (currentNote >= noteCount) {
-		// Reset music.
+		// End of music reached, reset music.
 		currentNote = 0;
 		currentBeat = -5;
 	}
-}
-
-void seq_callback (unsigned int time, fluid_event_t* event,
-                   fluid_sequencer_t* seq, void* data) {
-
 }
 
 IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t points[], int pointsFront, int pointsCount) {
