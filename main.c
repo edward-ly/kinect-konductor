@@ -8,20 +8,20 @@
 
 const int SCREENX = 1200, SCREENY = 800;
 const int WIN_TYPE = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE;
-const int WIDTH = 640, HEIGHT = 480, TIMER = 10;
+const int WIDTH = 640, HEIGHT = 480, TIMER = 1;
 const int MAX_CHANNELS = 16, MAX_BEATS = 4;
 const int MAX_POINTS = 5, THRESHOLD = 64;
 const double MIN_DISTANCE = 12.0, MAX_ACCEL = 16384.0;
 
 bool debug_input = false;
-bool debug_stream = true;
+bool debug_stream = false;
 bool debug_time = false;
 
 int currentBeat = -5; // Don't start music immediately.
 int currentNote = 0, programCount, noteCount;
 unsigned short velocity;
 unsigned int PPQN, ticksPerBeat, time1, time2;
-double vel1, vel2, accel, beat_accel = 0;
+double vel1, vel2, accel;
 
 fluid_settings_t* settings;
 fluid_synth_t* synth;
@@ -171,7 +171,6 @@ int main (int argc, char* argv[]) {
 				ticksPerBeat += clockTicks[(clockTicksFront + i) % MAX_BEATS];
 			ticksPerBeat /= clockTicksCount;
 
-			beat_accel = accel;
 			currentBeat++;
 			play_current_notes(synth, notes);
 			beatIsReady = false;
@@ -304,7 +303,7 @@ void send_note_off (int chan, int key, unsigned int date) {
 }
 
 void play_current_notes (fluid_synth_t* synth, note_t notes[]) {
-	velocity = (unsigned short)(beat_accel * 127.0 / MAX_ACCEL);
+	velocity = (unsigned short)(accel * 127.0 / MAX_ACCEL);
 	if (velocity > 127) velocity = 127;
 
 	now = fluid_sequencer_get_tick(sequencer);
