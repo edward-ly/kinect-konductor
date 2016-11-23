@@ -2,7 +2,7 @@
 
 A virtual orchestra conductor application using the Microsoft Kinect for Windows v1. Developed as an Earlham College senior capstone research project in collaboration with the Music and Computer Science Departments.
 
-This application tracks your hand's position and uses nothing but its vertical velocity and acceleration to detect beats and determine volume, respectively. A MIDI-like CSV file is used to store the desired music for playback.
+This application tracks your hand's position and uses its vertical velocity and acceleration to detect beats and determine volume, respectively. A MIDI-like CSV file is used to store the desired music for playback.
 
 ## Technical Overview
 
@@ -35,13 +35,11 @@ The command to start the program is `./main [music] [soundfont]`, where `[music]
 $ ./main examples/example.csv /usr/share/sounds/sf2/FluidR3_GM.sf2
 ```
 
-When you run the program for the first time, the JACK server should start up as well. If you are using QjackCtl to manage the JACK server, ensure that the FluidSynth audio output is connected to your system audio driver to ensure playback.
-
->If JACK is unable to use real-time scheduling, run the commands `sudo dpkg-reconfigure -p high jackd` to give JACK high priority and `sudo adduser [your-username] audio` to add your user account to the "audio" group, and restart your computer.
+When you run the program for the first time, the JACK server should start up as well. If JACK is unable to use real-time scheduling, run the commands `sudo dpkg-reconfigure -p high jackd` to give JACK high priority and `sudo adduser [your-username] audio` to add your user account to the "audio" group, then restart your computer.
 
 ## Creating Your Own Score
 
-Our program reads a CSV file in a certain format in order to play music. The first line consists of three numbers. The first number indicates the number of program changes to read, the second number indicates the number of note messages to read, and the third number indicates the PPQN (pulses per quarter note) value for the music.
+Our program reads a CSV file in a certain format in order to play music. The first line consists of three numbers. The first number indicates the number of program changes to read, the second number indicates the number of note messages to read, and the third number indicates the PPQN (pulses/ticks per quarter note) value for the music.
 
 The following lines, equal to the expected number of program changes, each consist of a channel number (0-15) and a program number (0-127 for General MIDI), telling FluidSynth which program/instrument maps to which channel.
 
@@ -53,5 +51,5 @@ Each of the remaining lines then represent a MIDI "note on" or "note off" messag
 * key/note number
 * 1 for "note on" or 0 for "note off"
 
-All numbers must be separated by whitespace. See our example CSV files in the `examples` folder for reference. Ensure that each message is sorted by increasing beat number followed by increasing tick count as each MIDI message will be played in the same order as they are read from the file.
+All numbers must be separated by whitespace. See our example CSV files in the `examples` folder for reference. Ensure that each message is sorted by increasing beat number (and then preferably by increasing tick count too) as each MIDI message will be read and scheduled in the same order as in the file.
 
