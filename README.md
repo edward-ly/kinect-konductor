@@ -53,3 +53,8 @@ Each of the remaining lines then represent a MIDI "note on" or "note off" messag
 
 All numbers must be separated by whitespace. See our example CSV files in the `examples` folder for reference. Ensure that each message is sorted by increasing beat number (and then preferably by increasing tick count too) as each MIDI message will be read and scheduled in the same order as in the file.
 
+## Usage Information
+
+* `examples/ensemble.csv`
+  * Original Composition: [Ode to Joy by L. V. Beethoven (1770–1827)](http://www.mutopiaproject.org/cgibin/piece-info.cgi?id=528)
+
