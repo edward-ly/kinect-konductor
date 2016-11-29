@@ -303,7 +303,8 @@ void play_current_notes (fluid_synth_t* synth, note_t notes[], int progs[]) {
 		currentNote++;
 	}
 
-	if (currentNote >= noteCount) {
+	if ((currentNote >= noteCount)
+			&& (notes[noteCount - 1].beat < currentBeat)) {
 		// End of music reached, reset music.
 		// Turn off any stray notes, redo program changes.
 		fluid_synth_system_reset(synth);
