@@ -29,10 +29,10 @@ This application was developed using the following libraries. Some notable depen
 
 ### Linux
 
-The command to start the program is `./main [music] [soundfont]`, where `[music]` is the CSV file containing the score to be played, and `[soundfont]` is the SoundFont file containing the desired MIDI instruments for playback. For example, to play the example CSV file `examples/example.csv` with the Fluid (R3) General MIDI SoundFont located at `/usr/share/sounds/sf2/FluidR3_GM.sf2`:
+The command to start the program is `./main [music] [soundfont]`, where `[music]` is the CSV file containing the score to be played, and `[soundfont]` is the SoundFont file containing the desired MIDI instruments for playback. For example, to play the CSV file `examples/ensemble.csv` with the Fluid (R3) General MIDI SoundFont located at `/usr/share/sounds/sf2/FluidR3_GM.sf2`:
 
 ```
-$ ./main examples/example.csv /usr/share/sounds/sf2/FluidR3_GM.sf2
+$ ./main examples/ensemble.csv /usr/share/sounds/sf2/FluidR3_GM.sf2
 ```
 
 When you run the program for the first time, the JACK server should start up as well. If JACK is unable to use real-time scheduling, run the commands `sudo dpkg-reconfigure -p high jackd` to give JACK high priority and `sudo adduser [your-username] audio` to add your user account to the "audio" group, then restart your computer.
