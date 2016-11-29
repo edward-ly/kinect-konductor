@@ -1,6 +1,6 @@
 // File: main.c
 // Author: Edward Ly
-// Last Modified: 22 November 2016
+// Last Modified: 29 November 2016
 // Description: A simple virtual conductor application for Kinect for Windows v1.
 // See the LICENSE file for license information.
 
@@ -10,8 +10,8 @@ const int SCREENX = 1200, SCREENY = 800;
 const int WIN_TYPE = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE;
 const int WIDTH = 640, HEIGHT = 480, TIMER = 1;
 const int MAX_CHANNELS = 16, MAX_BEATS = 4;
-const int MAX_POINTS = 5, THRESHOLD = 64;
-const double MIN_DISTANCE = 12.0, MAX_ACCEL = 16384.0;
+const int MAX_POINTS = 5, THRESHOLD = 8;
+const double MIN_DISTANCE = 8.0, MAX_ACCEL = 16384.0;
 
 int currentBeat = -5; // Don't start music immediately.
 int currentNote = 0, programCount, noteCount;
@@ -96,7 +96,7 @@ int main (int argc, char* argv[]) {
 		}
 	}
 
-	fclose(file);
+	fclose(file); // Finished reading music.
 
 	fluid_init(argv[2], programs); // Initialize FluidSynth.
 
@@ -148,10 +148,10 @@ int main (int argc, char* argv[]) {
 		// Update velocity and acceleration.
 		analyze_points(points, p_front);
 
-		CvPoint prev = points[(p_front + p_count - 1) % MAX_POINTS].point;
+		CvPoint prev = points[(p_front + p_count - 2) % MAX_POINTS].point;
 		CvPoint last = points[p_front].point;
 		if (beatIsReady && (vel1 < 0) && (vel2 > THRESHOLD)
-                        && (distance(prev, last) > MIN_DISTANCE)) {
+				&& ((prev.y - last.y) > MIN_DISTANCE)) {
 			// Add elapsed clock ticks to queue.
 			time2 = points[(p_front + p_count - 1) % MAX_POINTS].time;
 			if (c_count < MAX_BEATS)
@@ -276,7 +276,7 @@ void analyze_points (point_t points[], int front) {
 }
 
 void send_note (int chan, int key, unsigned short vel, unsigned int date, int on) {
-	fluid_event_t *evt = new_fluid_event();
+	fluid_event_t* evt = new_fluid_event();
 	fluid_event_set_source(evt, -1);
 	fluid_event_set_dest(evt, synthSeqID);
 	if (on) fluid_event_noteon(evt, chan, key, vel);
@@ -288,6 +288,7 @@ void send_note (int chan, int key, unsigned short vel, unsigned int date, int on
 void play_current_notes (fluid_synth_t* synth, note_t notes[], int progs[]) {
 	velocity = (unsigned short)(accel * 127.0 / MAX_ACCEL);
 	if (velocity > 127) velocity = 127;
+	if (velocity < 15) velocity = 15;
 
 	now = fluid_sequencer_get_tick(sequencer);
 
