@@ -307,11 +307,12 @@ void play_current_notes (fluid_synth_t* synth, note_t notes[]) {
 
 IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t points[], int front, int count) {
 	static IplImage *img = NULL; int i;
-	CvScalar color[] = {CV_RGB(255, 0, 0), CV_RGB(0, 255, 0)};
+	CvScalar color[] = {CV_RGB(255, 0, 0), CV_RGB(0, 255, 0), CV_RGB(0, 0, 255)};
 
 	if (img == NULL) img = cvCreateImage(cvSize(WIDTH, HEIGHT), 8, 3);
 
 	cvZero(img);
+	cvDrawContours(img, cnt, color[type], color[2], 0, 1, 8, cvPoint(0, 0));
 	for (i = 1; i < count; i++) {
 		CvPoint point1 = points[(front + i - 1) % MAX_POINTS].point;
 		CvPoint point2 = points[(front + i) % MAX_POINTS].point;
