@@ -29,12 +29,13 @@ unsigned int now;
 double ticksPerSecond;
 
 void      fluid_init         (char*, int[]);
+void      fluid_set_programs (int[]);
 double    diffclock          (unsigned int, unsigned int);
 double    distance           (CvPoint, CvPoint);
 double    velocity_y         (point_t, point_t);
 void      analyze_points     (point_t[], int);
 void      send_note          (int, int, unsigned short, unsigned int, int);
-void      play_current_notes (fluid_synth_t*, note_t[]);
+void      play_current_notes (fluid_synth_t*, note_t[], int[]);
 IplImage* draw_depth_hand    (CvSeq*, int, point_t[], int, int);
 
 //////////////////////////////////////////////////////
@@ -167,7 +168,7 @@ int main (int argc, char* argv[]) {
 			ticksPerBeat /= c_count;
 
 			currentBeat++;
-			play_current_notes(synth, notes);
+			play_current_notes(synth, notes, programs);
 			beatIsReady = false;
 		}
 
@@ -195,7 +196,7 @@ int main (int argc, char* argv[]) {
 
 //////////////////////////////////////////////////////
 
-void fluid_init (char* soundfont, int programs[]) {
+void fluid_init (char* font, int progs[]) {
 	settings = new_fluid_settings();
 	if (settings == NULL) {
 		fprintf(stderr, "FluidSynth: failed to create the settings\n");
@@ -223,9 +224,9 @@ void fluid_init (char* soundfont, int programs[]) {
 		exit(3);
 	}
 
-	sfont_id = fluid_synth_sfload(synth, soundfont, 1);
+	sfont_id = fluid_synth_sfload(synth, font, 1);
 	if (sfont_id == FLUID_FAILED) {
-		fprintf(stderr, "FluidSynth: unable to open soundfont %s\n", soundfont);
+		fprintf(stderr, "FluidSynth: unable to open soundfont %s\n", font);
 		delete_fluid_audio_driver(adriver);
 		delete_fluid_synth(synth);
 		delete_fluid_settings(settings);
@@ -233,16 +234,20 @@ void fluid_init (char* soundfont, int programs[]) {
 	}
 
 	// Set instruments / make program changes.
-	int i;
-	for (i = 0; i < MAX_CHANNELS; i++) {
-		if (programs[i] != -1)
-			fluid_synth_program_select(synth, i, sfont_id, 0, programs[i]);
-	}
+	fluid_set_programs(progs);
 
 	sequencer = new_fluid_sequencer2(0);
 	synthSeqID = fluid_sequencer_register_fluidsynth(sequencer, synth);
 	mySeqID = fluid_sequencer_register_client(sequencer, "me", NULL, NULL);
 	ticksPerSecond = fluid_sequencer_get_time_scale(sequencer);
+}
+
+void fluid_set_programs (int progs[]) {
+	int i;
+	for (i = 0; i < MAX_CHANNELS; i++) {
+		if (progs[i] != -1)
+			fluid_synth_program_select(synth, i, sfont_id, 0, progs[i]);
+	}
 }
 
 double diffclock (unsigned int end, unsigned int beginning) {
@@ -280,7 +285,7 @@ void send_note (int chan, int key, unsigned short vel, unsigned int date, int on
 	delete_fluid_event(evt);
 }
 
-void play_current_notes (fluid_synth_t* synth, note_t notes[]) {
+void play_current_notes (fluid_synth_t* synth, note_t notes[], int progs[]) {
 	velocity = (unsigned short)(accel * 127.0 / MAX_ACCEL);
 	if (velocity > 127) velocity = 127;
 
@@ -300,8 +305,11 @@ void play_current_notes (fluid_synth_t* synth, note_t notes[]) {
 
 	if (currentNote >= noteCount) {
 		// End of music reached, reset music.
+		// Turn off any stray notes, redo program changes.
+		fluid_synth_system_reset(synth);
+		fluid_set_programs(progs);
 		currentNote = 0;
-		currentBeat = -5;
+		currentBeat = -4;
 	}
 }
 
