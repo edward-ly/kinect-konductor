@@ -11,7 +11,7 @@ const int WIN_TYPE = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE;
 const int WIDTH = 640, HEIGHT = 480, TIMER = 1;
 const int MAX_CHANNELS = 16, MAX_BEATS = 4;
 const int MAX_POINTS = 5, THRESHOLD = 8;
-const double MIN_DISTANCE = 16.0, MAX_ACCEL = 16384.0;
+const double MIN_DISTANCE = 8.0, MAX_ACCEL = 16384.0;
 
 int currentBeat = -5; // Don't start music immediately.
 int currentNote = 0, programCount, noteCount;
@@ -172,7 +172,7 @@ int main (int argc, char* argv[]) {
 			beatIsReady = false;
 		}
 
-		if (!beatIsReady && (vel1 > 0) && (vel2 < -THRESHOLD))
+		if (!beatIsReady && (vel1 > 0) && (vel2 < 0))
 			beatIsReady = true;
 
 		a = draw_depth_hand(cnt, (int)beatIsReady, points, p_front, p_count);
@@ -266,9 +266,9 @@ double velocity_y (point_t end, point_t beginning) {
 
 void analyze_points (point_t points[], int front) {
 	point_t point4 = points[(front + MAX_POINTS - 1) % MAX_POINTS];
-	point_t point3 = points[(front + MAX_POINTS - 2) % MAX_POINTS];
-	point_t point2 = points[(front + 3) % MAX_POINTS];
-	point_t point1 = points[(front + 2) % MAX_POINTS];
+	point_t point3 = points[(front + MAX_POINTS - 3) % MAX_POINTS];
+	point_t point2 = points[(front + 2) % MAX_POINTS];
+	point_t point1 = points[front];
 
 	vel2 = -1 * velocity_y(point4, point3);
 	vel1 = -1 * velocity_y(point2, point1);
