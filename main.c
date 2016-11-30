@@ -115,11 +115,13 @@ void parse_music (void) {
 	for (i = 0; i < programCount; i++) {
 		if (fscanf(file, "%i %i", &channel, &program) == EOF) {
 			fclose(file);
+			free(programs);
 			fprintf(stderr, "Error: unable to read program change from file %s\n", music);
 			exit(-4);
 		}
 		else if (channel < 0 || channel >= MAX_CHANNELS) {
 			fclose(file);
+			free(programs);
 			fprintf(stderr, "Error: invalid channel number %i read from file %s\n", channel, music);
 			exit(-5);
 		}
@@ -136,6 +138,7 @@ void parse_music (void) {
                          &notes[i].key,
                          &notes[i].noteOn) == EOF) {
 			fclose(file);
+			release_all();
 			fprintf(stderr, "Error: invalid note message %i of %i read from file %s\n", i + 1, noteCount, music);
 			exit(-6);
 		}
@@ -148,6 +151,7 @@ void fluid_init (void) {
 	settings = new_fluid_settings();
 	if (settings == NULL) {
 		fprintf(stderr, "FluidSynth: failed to create the settings\n");
+		release_all();
 		exit(1);
 	}
 
@@ -160,24 +164,21 @@ void fluid_init (void) {
 	synth = new_fluid_synth(settings);
 	if (synth == NULL) {
 		fprintf(stderr, "FluidSynth: failed to create the synthesizer\n");
-		delete_fluid_settings(settings);
+		release_all();
 		exit(2);
 	}
 
 	adriver = new_fluid_audio_driver(settings, synth);
 	if (adriver == NULL) {
 		fprintf(stderr, "FluidSynth: failed to create the audio driver\n");
-		delete_fluid_synth(synth);
-		delete_fluid_settings(settings);
+		release_all();
 		exit(3);
 	}
 
 	sfont_id = fluid_synth_sfload(synth, font, 1);
 	if (sfont_id == FLUID_FAILED) {
 		fprintf(stderr, "FluidSynth: unable to open soundfont %s\n", font);
-		delete_fluid_audio_driver(adriver);
-		delete_fluid_synth(synth);
-		delete_fluid_settings(settings);
+		release_all();
 		exit(4);
 	}
 
