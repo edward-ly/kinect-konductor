@@ -20,6 +20,8 @@ const double MIN_DISTANCE = 8.0,
              MAX_ACCEL    = 16384.0;
 const char*  win_hand     = "Kinect Konductor";
 
+char *music = NULL, *font = NULL;
+
 int currentBeat = -5; // Don't start music immediately.
 int currentNote = 0, programCount, noteCount;
 unsigned short velocity;
@@ -37,8 +39,9 @@ short synthSeqID, mySeqID;
 unsigned int now;
 double ticksPerSecond;
 
-void      parse_music        (int, char*[]);
-void      fluid_init         (char*);
+void      parse_args         (int, char*[]);
+void      parse_music        (void);
+void      fluid_init         (void);
 void      fluid_set_programs (void);
 void      main_loop          (void);
 double    diffclock          (unsigned int, unsigned int);
@@ -49,12 +52,14 @@ void      send_note          (int, int, unsigned short, unsigned int, int);
 void      play_current_notes (void);
 IplImage* draw_depth_hand    (CvSeq*, int, point_t[], int, int);
 void      release_all        (void);
+void      usage              (char*);
 
 //////////////////////////////////////////////////////
 
 int main (int argc, char* argv[]) {
-	parse_music(argc, argv);
-	fluid_init(argv[2]);
+	parse_args(argc, argv);
+	parse_music();
+	fluid_init();
 
 	main_loop();
 
@@ -64,23 +69,39 @@ int main (int argc, char* argv[]) {
 
 //////////////////////////////////////////////////////
 
-void parse_music (int argc, char* argv[]) {
-	if (argc < 3) {
-		fprintf(stderr, "Usage: %s [music] [soundfont]\n", argv[0]);
-		exit(-1);
+void parse_args (int argc, char* argv[]) {
+	int c;
+	while ((c = getopt(argc, argv, "m:f:h")) != -1) {
+		switch (c) {
+		case 'm':
+			music = optarg;
+			break;
+		case 'f':
+			font = optarg;
+			break;
+		case 'h':
+		default:
+			usage(argv[0]);
+			exit(-1);
+		}
 	}
 
-	FILE* file;
-	char* filename = argv[1];
-	file = fopen(filename, "r");
+	if (music == NULL || font == NULL) {
+		usage(argv[0]);
+		exit(-1);
+	}
+}
+
+void parse_music (void) {
+	FILE* file = fopen(music, "r");
 	if (file == NULL) {
-		fprintf(stderr, "Error: unable to open file %s\n", filename);
+		fprintf(stderr, "Error: unable to open file %s\n", music);
 		exit(-2);
 	}
 
 	if (fscanf(file, "%i %i %u", &programCount, &noteCount, &PPQN) == EOF) {
 		fclose(file);
-		fprintf(stderr, "Error: unable to read counts from file %s\n", filename);
+		fprintf(stderr, "Error: unable to read counts from file %s\n", music);
 		exit(-3);
 	}
 
@@ -94,12 +115,12 @@ void parse_music (int argc, char* argv[]) {
 	for (i = 0; i < programCount; i++) {
 		if (fscanf(file, "%i %i", &channel, &program) == EOF) {
 			fclose(file);
-			fprintf(stderr, "Error: unable to read program change from file %s\n", filename);
+			fprintf(stderr, "Error: unable to read program change from file %s\n", music);
 			exit(-4);
 		}
-		else if ((channel < 0) || (channel >= MAX_CHANNELS)) {
+		else if (channel < 0 || channel >= MAX_CHANNELS) {
 			fclose(file);
-			fprintf(stderr, "Error: invalid channel number %i read from file %s\n", channel, filename);
+			fprintf(stderr, "Error: invalid channel number %i read from file %s\n", channel, music);
 			exit(-5);
 		}
 		else programs[channel] = program;
@@ -115,7 +136,7 @@ void parse_music (int argc, char* argv[]) {
                          &notes[i].key,
                          &notes[i].noteOn) == EOF) {
 			fclose(file);
-			fprintf(stderr, "Error: invalid note message %i of %i read from file %s\n", i + 1, noteCount, filename);
+			fprintf(stderr, "Error: invalid note message %i of %i read from file %s\n", i + 1, noteCount, music);
 			exit(-6);
 		}
 	}
@@ -123,7 +144,7 @@ void parse_music (int argc, char* argv[]) {
 	fclose(file);
 }
 
-void fluid_init (char* font) {
+void fluid_init (void) {
 	settings = new_fluid_settings();
 	if (settings == NULL) {
 		fprintf(stderr, "FluidSynth: failed to create the settings\n");
@@ -227,7 +248,7 @@ void main_loop (void) {
 		CvPoint prev = points[(p_front + p_count - 2) % MAX_POINTS].point;
 		CvPoint last = points[p_front].point;
 		if (beatIsReady && (vel1 < 0) && (vel2 > THRESHOLD)
-				&& ((prev.y - last.y) > MIN_DISTANCE)) {
+				&& (prev.y - last.y) > MIN_DISTANCE) {
 			// Add elapsed clock ticks to queue.
 			time2 = points[(p_front + p_count - 1) % MAX_POINTS].time;
 			if (c_count < MAX_BEATS)
@@ -351,5 +372,12 @@ void release_all (void) {
 	delete_fluid_audio_driver(adriver);
 	delete_fluid_synth(synth);
 	delete_fluid_settings(settings);
+}
+
+void usage (char* program) {
+	fprintf(stderr, "Usage: %s -m [music] -f [font] [-h]\n", program);
+	fprintf(stderr, "  -m  Music CSV file\n");
+	fprintf(stderr, "  -f  SoundFont file\n");
+	fprintf(stderr, "  -h  Show this message\n");
 }
 
