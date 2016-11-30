@@ -29,17 +29,17 @@ This application was developed using the following libraries. Some notable depen
 
 ### Linux
 
-The command to start the program is `./main [music] [soundfont]`, where `[music]` is the CSV file containing the score to be played, and `[soundfont]` is the SoundFont file containing the desired MIDI instruments for playback. For example, to play the CSV file `examples/ensemble.csv` with the Fluid (R3) General MIDI SoundFont located at `/usr/share/sounds/sf2/FluidR3_GM.sf2`:
+The command to run the program is `./main -m [music] -f [font]`, where `[music]` is the CSV file containing the score to be played, and `[font]` is the SoundFont file containing the desired MIDI instruments for playback. For example, to play the CSV music file `examples/ensemble.csv` with the Fluid (R3) General MIDI SoundFont located at `/usr/share/sounds/sf2/FluidR3_GM.sf2`:
 
 ```
-$ ./main examples/ensemble.csv /usr/share/sounds/sf2/FluidR3_GM.sf2
+$ ./main -m examples/ensemble.csv -f /usr/share/sounds/sf2/FluidR3_GM.sf2
 ```
 
-When you run the program for the first time, the JACK server should start up as well. If JACK is unable to use real-time scheduling, run the commands `sudo dpkg-reconfigure -p high jackd` to give JACK high priority and `sudo adduser [your-username] audio` to add your user account to the "audio" group, then restart your computer.
+>When you run the program for the first time, the JACK server should start up as well if it hasn't started already. If JACK is unable to use real-time scheduling, run the commands `sudo dpkg-reconfigure -p high jackd` to give JACK high priority and `sudo adduser [your-username] audio` to add your user account to the "audio" group, then restart your computer.
 
 ## Creating Your Own Score
 
-Our program reads a CSV file in a certain format in order to play music. The first line consists of three numbers. The first number indicates the number of program changes to read, the second number indicates the number of note messages to read, and the third number indicates the PPQN (pulses/ticks per quarter note) value for the music.
+Our program reads a CSV file consisting of lines of numbers in a certain format in order to play music. The first line consists of three numbers: the number of program changes to read, the number of note messages to read, and the PPQN (pulses/ticks per quarter note) value for the music.
 
 The following lines, equal to the expected number of program changes, each consist of a channel number (0-15) and a program number (0-127 for General MIDI), telling FluidSynth which program/instrument maps to which channel.
 
@@ -53,8 +53,10 @@ Each of the remaining lines then represent a MIDI "note on" or "note off" messag
 
 All numbers must be separated by whitespace. See our example CSV files in the `examples` folder for reference. Ensure that each message is sorted by increasing beat number (and then preferably by increasing tick count too) as each MIDI message will be read and scheduled in the same order as in the file.
 
-## Usage Information
+## Music & Usage Information
 
 * `examples/ensemble.csv`
   * Original Composition: [Ode to Joy by L. V. Beethoven (1770–1827)](http://www.mutopiaproject.org/cgibin/piece-info.cgi?id=528)
+  * Arranged for Woodwind Quintet by Edward Ly
+  * Distributed under [Creative Commons](http://creativecommons.org/) license
 
