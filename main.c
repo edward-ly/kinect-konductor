@@ -1,18 +1,24 @@
 // File: main.c
 // Author: Edward Ly
-// Last Modified: 29 November 2016
+// Last Modified: 30 November 2016
 // Description: A simple virtual conductor application for Kinect for Windows v1.
 // See the LICENSE file for license information.
 
 #include "include.h"
 
-const int SCREENX = 1200, SCREENY = 800;
-const int WIN_TYPE = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE;
-const int WIDTH = 640, HEIGHT = 480, TIMER = 1;
-const int MAX_CHANNELS = 16, MAX_BEATS = 4;
-const int MAX_POINTS = 5, THRESHOLD = 8;
-const double MIN_DISTANCE = 8.0, MAX_ACCEL = 16384.0;
-const char* win_hand = "Kinect Konductor";
+const int    WIN_TYPE     = CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE,
+             SCREEN_X     = 1200,
+             SCREEN_Y     = 800,
+             WIDTH        = 640,
+             HEIGHT       = 480,
+             TIMER        = 1,
+             MAX_CHANNELS = 16,
+             MAX_BEATS    = 4,
+             MAX_POINTS   = 5,
+             THRESHOLD    = 8;
+const double MIN_DISTANCE = 8.0,
+             MAX_ACCEL    = 16384.0;
+const char*  win_hand     = "Kinect Konductor";
 
 int currentBeat = -5; // Don't start music immediately.
 int currentNote = 0, programCount, noteCount;
@@ -64,7 +70,7 @@ void parse_music (int argc, char* argv[]) {
 		exit(-1);
 	}
 
-	FILE* file; // Start opening music file and parse input.
+	FILE* file;
 	char* filename = argv[1];
 	file = fopen(filename, "r");
 	if (file == NULL) {
@@ -114,7 +120,7 @@ void parse_music (int argc, char* argv[]) {
 		}
 	}
 
-	fclose(file); // Finished reading music.
+	fclose(file);
 }
 
 void fluid_init (char* font) {
@@ -154,7 +160,6 @@ void fluid_init (char* font) {
 		exit(4);
 	}
 
-	// Set instruments / make program changes.
 	fluid_set_programs();
 
 	sequencer = new_fluid_sequencer2(0);
@@ -180,15 +185,15 @@ void main_loop (void) {
 
 	// Initialize queues to prevent erratic results.
 	for (i = 0; i < MAX_POINTS; i++) {
-		points[i].point.x = WIDTH/2;
-		points[i].point.y = HEIGHT/2;
+		points[i].point.x = WIDTH / 2;
+		points[i].point.y = HEIGHT / 2;
 		points[i].time = time1;
 	}
 	for (i = 0; i < MAX_BEATS; i++)
 		ticks[i] = 0;
 
 	cvNamedWindow(win_hand, WIN_TYPE);
-	cvMoveWindow(win_hand, SCREENX - WIDTH/2, HEIGHT/2);
+	cvMoveWindow(win_hand, SCREEN_X - WIDTH / 2, 0);
 
 	// Main loop: detect and watch hand for beats.
 	while (true) {
@@ -205,12 +210,13 @@ void main_loop (void) {
 			continue;
 
 		// Add point to queue.
+		now = fluid_sequencer_get_tick(sequencer);
 		if (p_count < MAX_POINTS) {
-			points[(p_front + p_count) % MAX_POINTS].time = fluid_sequencer_get_tick(sequencer);
+			points[(p_front + p_count) % MAX_POINTS].time = now;
 			points[(p_front + p_count++) % MAX_POINTS].point = cent;
 		}
 		else {
-			points[p_front].time = fluid_sequencer_get_tick(sequencer);
+			points[p_front].time = now;
 			points[p_front++].point = cent;
 			p_front %= MAX_POINTS;
 		}
@@ -247,15 +253,15 @@ void main_loop (void) {
 
 		a = draw_depth_hand(cnt, (int)beatIsReady, points, p_front, p_count);
 		cvShowImage(win_hand, a);
-		cvResizeWindow(win_hand, WIDTH/2, HEIGHT/2);
+		cvResizeWindow(win_hand, WIDTH / 2, HEIGHT / 2);
 
 		// Press any key to quit.
 		if (cvWaitKey(TIMER) != -1) break;
 	}
 }
 
-double diffclock (unsigned int end, unsigned int beginning) {
-	return (end - beginning) / (double)ticksPerSecond;
+double diffclock (unsigned int end, unsigned int start) {
+	return (end - start) / (double)ticksPerSecond;
 }
 
 double distance (CvPoint p1, CvPoint p2) {
@@ -264,8 +270,8 @@ double distance (CvPoint p1, CvPoint p2) {
 	return sqrt((double)((x * x) + (y * y)));
 }
 
-double velocity_y (point_t end, point_t beginning) {
-	return (end.point.y - beginning.point.y) / diffclock(end.time, beginning.time);
+double velocity_y (point_t end, point_t start) {
+	return (end.point.y - start.point.y) / diffclock(end.time, start.time);
 }
 
 void analyze_points (point_t points[], int front) {
@@ -296,8 +302,7 @@ void play_current_notes (void) {
 
 	now = fluid_sequencer_get_tick(sequencer);
 
-	while ((currentNote < noteCount)
-			&& (notes[currentNote].beat <= currentBeat)) {
+	while ((currentNote < noteCount) && (notes[currentNote].beat <= currentBeat)) {
 		int channel = notes[currentNote].channel;
 		short key = notes[currentNote].key;
 		unsigned int at_tick = now;
@@ -308,8 +313,7 @@ void play_current_notes (void) {
 		currentNote++;
 	}
 
-	if ((currentNote >= noteCount)
-			&& (notes[noteCount - 1].beat < currentBeat)) {
+	if ((currentNote >= noteCount) && (notes[noteCount - 1].beat < currentBeat)) {
 		// End of music reached, reset music.
 		// Turn off any stray notes, redo program changes.
 		fluid_synth_system_reset(synth);
@@ -319,7 +323,7 @@ void play_current_notes (void) {
 	}
 }
 
-IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t points[], int front, int count) {
+IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t pt[], int fr, int ct) {
 	static IplImage *img = NULL; int i;
 	CvScalar color[] = {CV_RGB(255, 0, 0), CV_RGB(0, 255, 0), CV_RGB(0, 0, 255)};
 
@@ -327,9 +331,9 @@ IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t points[], int front, in
 
 	cvZero(img);
 	cvDrawContours(img, cnt, color[type], color[2], 0, 1, 8, cvPoint(0, 0));
-	for (i = 1; i < count; i++) {
-		CvPoint point1 = points[(front + i - 1) % MAX_POINTS].point;
-		CvPoint point2 = points[(front + i) % MAX_POINTS].point;
+	for (i = 1; i < ct; i++) {
+		CvPoint point1 = pt[(fr + i - 1) % MAX_POINTS].point;
+		CvPoint point2 = pt[(fr + i) % MAX_POINTS].point;
 		cvLine(img, point1, point2, color[type], 2, 8, 0);
 	}
 	cvFlip(img, NULL, 1);
