@@ -19,6 +19,8 @@ int currentNote = 0, programCount, noteCount;
 unsigned short velocity;
 unsigned int PPQN, ticksPerBeat, time1, time2;
 double vel1, vel2, accel;
+int* programs;
+note_t* notes;
 
 fluid_settings_t* settings;
 fluid_synth_t* synth;
@@ -29,37 +31,34 @@ short synthSeqID, mySeqID;
 unsigned int now;
 double ticksPerSecond;
 
-void      parse_music        (int, char*[], int[], note_t**);
-void      fluid_init         (char*, int[]);
-void      fluid_set_programs (int[]);
-void      main_loop          (int[], note_t*);
+void      parse_music        (int, char*[]);
+void      fluid_init         (char*);
+void      fluid_set_programs (void);
+void      main_loop          (void);
 double    diffclock          (unsigned int, unsigned int);
 double    distance           (CvPoint, CvPoint);
 double    velocity_y         (point_t, point_t);
 void      analyze_points     (point_t[], int);
 void      send_note          (int, int, unsigned short, unsigned int, int);
-void      play_current_notes (fluid_synth_t*, note_t*, int[]);
+void      play_current_notes (void);
 IplImage* draw_depth_hand    (CvSeq*, int, point_t[], int, int);
-void      release_all        (note_t**);
+void      release_all        (void);
 
 //////////////////////////////////////////////////////
 
 int main (int argc, char* argv[]) {
-	int programs[MAX_CHANNELS];
-	note_t* notes;
+	parse_music(argc, argv);
+	fluid_init(argv[2]);
 
-	parse_music(argc, argv, programs, &notes);
-	fluid_init(argv[2], programs);
+	main_loop();
 
-	main_loop(programs, notes);
-
-	release_all(&notes);
+	release_all();
 	return 0;
 }
 
 //////////////////////////////////////////////////////
 
-void parse_music (int argc, char* argv[], int programs[], note_t** notes) {
+void parse_music (int argc, char* argv[]) {
 	if (argc < 3) {
 		fprintf(stderr, "Usage: %s [music] [soundfont]\n", argv[0]);
 		exit(-1);
@@ -80,7 +79,8 @@ void parse_music (int argc, char* argv[], int programs[], note_t** notes) {
 	}
 
 	int channel, program, i;
-	// Initialize program changes to none.
+	// Malloc program array and initialize changes to none.
+	programs = (int*)malloc(sizeof(int) * MAX_CHANNELS);
 	for (i = 0; i < MAX_CHANNELS; i++)
 		programs[i] = -1;
 
@@ -100,14 +100,14 @@ void parse_music (int argc, char* argv[], int programs[], note_t** notes) {
 	}
 
 	// Now malloc array of note messages and get messages.
-	*notes = (note_t*)malloc(sizeof(note_t) * noteCount);
+	notes = (note_t*)malloc(sizeof(note_t) * noteCount);
 	for (i = 0; i < noteCount; i++) {
 		if (fscanf(file, "%i %u %i %hi %i",
-                         &(*notes)[i].beat,
-                         &(*notes)[i].tick,
-                         &(*notes)[i].channel,
-                         &(*notes)[i].key,
-                         &(*notes)[i].noteOn) == EOF) {
+                         &notes[i].beat,
+                         &notes[i].tick,
+                         &notes[i].channel,
+                         &notes[i].key,
+                         &notes[i].noteOn) == EOF) {
 			fclose(file);
 			fprintf(stderr, "Error: invalid note message %i of %i read from file %s\n", i + 1, noteCount, filename);
 			exit(-6);
@@ -117,7 +117,7 @@ void parse_music (int argc, char* argv[], int programs[], note_t** notes) {
 	fclose(file); // Finished reading music.
 }
 
-void fluid_init (char* font, int progs[]) {
+void fluid_init (char* font) {
 	settings = new_fluid_settings();
 	if (settings == NULL) {
 		fprintf(stderr, "FluidSynth: failed to create the settings\n");
@@ -155,7 +155,7 @@ void fluid_init (char* font, int progs[]) {
 	}
 
 	// Set instruments / make program changes.
-	fluid_set_programs(progs);
+	fluid_set_programs();
 
 	sequencer = new_fluid_sequencer2(0);
 	synthSeqID = fluid_sequencer_register_fluidsynth(sequencer, synth);
@@ -163,15 +163,15 @@ void fluid_init (char* font, int progs[]) {
 	ticksPerSecond = fluid_sequencer_get_time_scale(sequencer);
 }
 
-void fluid_set_programs (int progs[]) {
+void fluid_set_programs (void) {
 	int i;
 	for (i = 0; i < MAX_CHANNELS; i++) {
-		if (progs[i] != -1)
-			fluid_synth_program_select(synth, i, sfont_id, 0, progs[i]);
+		if (programs[i] != -1)
+			fluid_synth_program_select(synth, i, sfont_id, 0, programs[i]);
 	}
 }
 
-void main_loop (int programs[], note_t* notes) {
+void main_loop (void) {
 	point_t points[MAX_POINTS]; // Queue of last known hand positions.
 	int ticks[MAX_BEATS]; // Queue of synth ticks elapsed b/t beats.
 	int p_front = 0, p_count = 0, c_front = 0, c_count = 0, i;
@@ -238,7 +238,7 @@ void main_loop (int programs[], note_t* notes) {
 			ticksPerBeat /= c_count;
 
 			currentBeat++;
-			play_current_notes(synth, notes, programs);
+			play_current_notes();
 			beatIsReady = false;
 		}
 
@@ -289,7 +289,7 @@ void send_note (int chan, int key, unsigned short vel, unsigned int date, int on
 	delete_fluid_event(evt);
 }
 
-void play_current_notes (fluid_synth_t* synth, note_t* notes, int progs[]) {
+void play_current_notes (void) {
 	velocity = (unsigned short)(accel * 127.0 / MAX_ACCEL);
 	if (velocity > 127) velocity = 127;
 	if (velocity < 15) velocity = 15;
@@ -313,7 +313,7 @@ void play_current_notes (fluid_synth_t* synth, note_t* notes, int progs[]) {
 		// End of music reached, reset music.
 		// Turn off any stray notes, redo program changes.
 		fluid_synth_system_reset(synth);
-		fluid_set_programs(progs);
+		fluid_set_programs();
 		currentNote = 0;
 		currentBeat = -4;
 	}
@@ -337,8 +337,9 @@ IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t points[], int front, in
 	return img;
 }
 
-void release_all (note_t** notes) {
-	free(*notes);
+void release_all (void) {
+	free(notes);
+	free(programs);
 	freenect_sync_stop();
 	cvDestroyAllWindows();
 
