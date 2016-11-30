@@ -28,6 +28,7 @@ short synthSeqID, mySeqID;
 unsigned int now;
 double ticksPerSecond;
 
+void      parse_music        (int, char*[], int[], note_t**);
 void      fluid_init         (char*, int[]);
 void      fluid_set_programs (int[]);
 double    diffclock          (unsigned int, unsigned int);
@@ -35,69 +36,15 @@ double    distance           (CvPoint, CvPoint);
 double    velocity_y         (point_t, point_t);
 void      analyze_points     (point_t[], int);
 void      send_note          (int, int, unsigned short, unsigned int, int);
-void      play_current_notes (fluid_synth_t*, note_t[], int[]);
+void      play_current_notes (fluid_synth_t*, note_t*, int[]);
 IplImage* draw_depth_hand    (CvSeq*, int, point_t[], int, int);
 
 //////////////////////////////////////////////////////
 
 int main (int argc, char* argv[]) {
-	if (argc < 3) {
-		fprintf(stderr, "Usage: %s [music] [soundfont]\n", argv[0]);
-		exit(-1);
-	}
-
-	FILE* file; // Start opening music file and parse input.
-	char* filename = argv[1];
-	file = fopen(filename, "r");
-	if (file == NULL) {
-		fprintf(stderr, "Error: unable to open file %s\n", filename);
-		exit(-2);
-	}
-
-	if (fscanf(file, "%i %i %u", &programCount, &noteCount, &PPQN) == EOF) {
-		fclose(file);
-		fprintf(stderr, "Error: unable to read counts from file %s\n", filename);
-		exit(-3);
-	}
-
-	int channel, program, i;
-	int programs[MAX_CHANNELS];
-	// Initialize program changes to none.
-	for (i = 0; i < MAX_CHANNELS; i++)
-		programs[i] = -1;
-
-	// Get program changes.
-	for (i = 0; i < programCount; i++) {
-		if (fscanf(file, "%i %i", &channel, &program) == EOF) {
-			fclose(file);
-			fprintf(stderr, "Error: unable to read program change from file %s\n", filename);
-			exit(-4);
-		}
-		else if ((channel < 0) || (channel >= MAX_CHANNELS)) {
-			fclose(file);
-			fprintf(stderr, "Error: invalid channel number %i read from file %s\n", channel, filename);
-			exit(-5);
-		}
-		else programs[channel] = program;
-	}
-
-	// Now initialize array of note messages and get messages.
-	note_t notes[noteCount];
-	for (i = 0; i < noteCount; i++) {
-		if (fscanf(file, "%i %u %i %hi %i",
-                         &notes[i].beat,
-                         &notes[i].tick,
-                         &notes[i].channel,
-                         &notes[i].key,
-                         &notes[i].noteOn) == EOF) {
-			fclose(file);
-			fprintf(stderr, "Error: invalid note message %i of %i read from file %s\n", i + 1, noteCount, filename);
-			exit(-6);
-		}
-	}
-
-	fclose(file); // Finished reading music.
-
+	int programs[MAX_CHANNELS], i;
+	note_t* notes = NULL;
+	parse_music(argc, argv, programs, &notes); // Read args & parse music.
 	fluid_init(argv[2], programs); // Initialize FluidSynth.
 
 	const char* win_hand = "Kinect Konductor";
@@ -183,18 +130,69 @@ int main (int argc, char* argv[]) {
 		if (cvWaitKey(TIMER) != -1) break;
 	}
 
-	freenect_sync_stop();
-	cvDestroyAllWindows();
-
-	delete_fluid_sequencer(sequencer);
-	delete_fluid_audio_driver(adriver);
-	delete_fluid_synth(synth);
-	delete_fluid_settings(settings);
-
+	release_all(notes);
 	return 0;
 }
 
 //////////////////////////////////////////////////////
+
+void parse_music (int argc, char* argv[], int programs[], note_t** notes) {
+	if (argc < 3) {
+		fprintf(stderr, "Usage: %s [music] [soundfont]\n", argv[0]);
+		exit(-1);
+	}
+
+	FILE* file; // Start opening music file and parse input.
+	char* filename = argv[1];
+	file = fopen(filename, "r");
+	if (file == NULL) {
+		fprintf(stderr, "Error: unable to open file %s\n", filename);
+		exit(-2);
+	}
+
+	if (fscanf(file, "%i %i %u", &programCount, &noteCount, &PPQN) == EOF) {
+		fclose(file);
+		fprintf(stderr, "Error: unable to read counts from file %s\n", filename);
+		exit(-3);
+	}
+
+	int channel, program, i;
+	// Initialize program changes to none.
+	for (i = 0; i < MAX_CHANNELS; i++)
+		programs[i] = -1;
+
+	// Get program changes.
+	for (i = 0; i < programCount; i++) {
+		if (fscanf(file, "%i %i", &channel, &program) == EOF) {
+			fclose(file);
+			fprintf(stderr, "Error: unable to read program change from file %s\n", filename);
+			exit(-4);
+		}
+		else if ((channel < 0) || (channel >= MAX_CHANNELS)) {
+			fclose(file);
+			fprintf(stderr, "Error: invalid channel number %i read from file %s\n", channel, filename);
+			exit(-5);
+		}
+		else programs[channel] = program;
+	}
+
+	// Now malloc array of note messages and get messages.
+	*notes = (note_t*)malloc(sizeof(note_t) * noteCount);
+	for (i = 0; i < noteCount; i++) {
+		if (fscanf(file, "%i %u %i %hi %i",
+                         &(*notes)[i].beat,
+                         &(*notes)[i].tick,
+                         &(*notes)[i].channel,
+                         &(*notes)[i].key,
+                         &(*notes)[i].noteOn) == EOF) {
+			fclose(file);
+			fprintf(stderr, "Error: invalid note message %i of %i read from file %s\n", i + 1, noteCount, filename);
+			exit(-6);
+		}
+	}
+
+	fclose(file); // Finished reading music.
+}
 
 void fluid_init (char* font, int progs[]) {
 	settings = new_fluid_settings();
@@ -285,7 +283,7 @@ void send_note (int chan, int key, unsigned short vel, unsigned int date, int on
 	delete_fluid_event(evt);
 }
 
-void play_current_notes (fluid_synth_t* synth, note_t notes[], int progs[]) {
+void play_current_notes (fluid_synth_t* synth, note_t* notes, int progs[]) {
 	velocity = (unsigned short)(accel * 127.0 / MAX_ACCEL);
 	if (velocity > 127) velocity = 127;
 	if (velocity < 15) velocity = 15;
@@ -331,5 +329,16 @@ IplImage* draw_depth_hand (CvSeq *cnt, int type, point_t points[], int front, in
 	cvFlip(img, NULL, 1);
 
 	return img;
+}
+
+void release_all (note_t** notes) {
+	free(*notes);
+	freenect_sync_stop();
+	cvDestroyAllWindows();
+
+	delete_fluid_sequencer(sequencer);
+	delete_fluid_audio_driver(adriver);
+	delete_fluid_synth(synth);
+	delete_fluid_settings(settings);
 }
 
