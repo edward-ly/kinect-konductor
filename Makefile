@@ -1,7 +1,8 @@
 # Author: Edward Ly
-# Last Modified: 16 November 2016
+# Last Modified: 1 December 2016
 # CS 488 Senior Capstone Project
 # Makefile for Main Program
+# Kinect Konductor: a simple virtual conductor application for Kinect for Windows v1.
 
 XKIN_LIBS_DIR = XKin/build/lib
 
@@ -17,7 +18,7 @@ XKIN_LIBS = -lbody -lhand -lposture -lgesture
 FLUIDSYNTH_LIBS = -lfluidsynth
 LIBS = ${OPENCV_LIBS} ${FREENECT_LIBS} ${XKIN_LIBS} ${FLUIDSYNTH_LIBS}
 
-main: main.c include.h
+main: main.c app.h include.h
 	gcc ${CFLAGS} ${LIB_PATHS} $< -o $@ ${LIBS}
 
 clean:
