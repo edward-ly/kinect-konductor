@@ -29,10 +29,10 @@ This application was developed using the following libraries. Some notable depen
 
 ### Linux
 
-The command to run the program is `./main -m [music] -f [font]`, where `[music]` is the CSV file containing the score to be played, and `[font]` is the SoundFont file containing the desired MIDI instruments for playback. For example, to play the CSV music file `examples/ensemble.csv` with the Fluid (R3) General MIDI SoundFont located at `/usr/share/sounds/sf2/FluidR3_GM.sf2`:
+The command to run the program is `konductor -m [music] -f [font]`, where `[music]` is the CSV file containing the score to be played, and `[font]` is the SoundFont file containing the desired MIDI instruments for playback. For example, while in the source directory to play the CSV music file `examples/ensemble.csv` with the Fluid (R3) General MIDI SoundFont located at `/usr/share/sounds/sf2/FluidR3_GM.sf2`:
 
 ```
-$ ./main -m examples/ensemble.csv -f /usr/share/sounds/sf2/FluidR3_GM.sf2
+$ ./konductor -m examples/ensemble.csv -f /usr/share/sounds/sf2/FluidR3_GM.sf2
 ```
 
 >When you run the program for the first time, the JACK server should start up as well if it hasn't started already. If JACK is unable to use real-time scheduling, run the commands `sudo dpkg-reconfigure -p high jackd` to give JACK high priority and `sudo adduser [your-username] audio` to add your user account to the "audio" group, then restart your computer.
@@ -60,3 +60,6 @@ All numbers must be separated by whitespace. See our example CSV files in the `e
   * Arranged for Woodwind Quintet by Edward Ly
   * Distributed under [Creative Commons](http://creativecommons.org/) license
 
+## Last Updated
+
+9 December 2016
