@@ -2,7 +2,9 @@
 
 A virtual orchestra conductor application using the Microsoft Kinect for Windows v1. Developed as an Earlham College senior capstone research project in collaboration with the Music and Computer Science Departments.
 
-This application tracks your hand's position and uses its vertical velocity and acceleration to detect beats and determine volume, respectively. A MIDI-like CSV file is used to store the desired music for playback.
+This application tracks your hand's position and uses its vertical velocity and acceleration to detect beats and determine volume, respectively. A MIDI-like CSV file is used to store the desired music for playback. For more information, you can read the accompanying paper found in the `pdf` folder.
+
+### [Demonstration Video](https://youtu.be/bJLTbwUDpNs)
 
 ## Technical Overview
 
@@ -62,4 +64,4 @@ All numbers must be separated by whitespace. See our example CSV files in the `e
 
 ## Last Updated
 
-9 December 2016
+23 February 2017
